@@ -115,7 +115,7 @@ export default function AccountRulesScreen() {
       const newCat: Category = { id: newId, name: trimmed, color: newCatColor, created_at: Date.now() };
       setCategories(prev => [...prev, newCat].sort((a, b) => a.name.localeCompare(b.name)));
       setCategoryId(newId);
-      setCatView('collapsed');
+      setCatView('collapsed'); // header shows newly created category, list closed
     } finally {
       setCreatingCat(false);
     }
@@ -301,103 +301,109 @@ export default function AccountRulesScreen() {
               onChangeText={setMatchText}
               placeholder="e.g. whole foods"
               placeholderTextColor={colors.textTertiary}
-              autoFocus
             />
 
             {/* ── Inline category picker ── */}
             <Text style={styles.sheetLabel}>Assign category</Text>
 
-            {/* Collapsed: just the pill button */}
-            {catView === 'collapsed' && (
+            <View style={styles.catDropdown}>
+              {/* Header row — always visible, tap to open/close list */}
               <TouchableOpacity
-                style={styles.catPill}
-                onPress={() => setCatView('list')}
-                activeOpacity={0.75}
+                style={styles.catDropdownHeader}
+                onPress={() => setCatView(catView === 'list' ? 'collapsed' : 'list')}
+                activeOpacity={0.7}
               >
-                {selectedCat && <View style={[styles.catPillDot, { backgroundColor: selectedCat.color }]} />}
-                <Text style={styles.catPillText} numberOfLines={1}>
+                {selectedCat
+                  ? <View style={[styles.catRowDot, { backgroundColor: selectedCat.color }]} />
+                  : <View style={styles.catRowDotEmpty} />
+                }
+                <Text style={[styles.catRowLabel, !selectedCat && { color: colors.textTertiary }]}>
                   {selectedCat?.name ?? 'Select category…'}
                 </Text>
-                <Text style={styles.catPillChevron}>▾</Text>
+                <Text style={styles.catChevron}>{catView === 'list' ? '▲' : '▼'}</Text>
               </TouchableOpacity>
-            )}
 
-            {/* List: inline category rows */}
-            {catView === 'list' && (
-              <View style={styles.catDropdown}>
-                {categories.map((item, index) => {
-                  const isSelected = item.id === categoryId;
-                  return (
-                    <TouchableOpacity
-                      key={item.id}
-                      style={[styles.catDropdownRow, index > 0 && styles.catRowBorder, isSelected && styles.catRowSelected]}
-                      onPress={() => selectCategory(item.id)}
-                      activeOpacity={0.7}
-                    >
-                      <View style={[styles.catRowDot, { backgroundColor: item.color }]} />
-                      <Text style={styles.catRowLabel}>{item.name}</Text>
-                      {isSelected && <Text style={styles.checkmark}>✓</Text>}
-                    </TouchableOpacity>
-                  );
-                })}
-                {categories.length === 0 && (
-                  <View style={styles.catEmptyWrap}>
-                    <Text style={styles.catEmptyText}>No categories yet — create one below.</Text>
-                  </View>
-                )}
-                <TouchableOpacity
-                  style={[styles.catDropdownRow, categories.length > 0 && styles.catRowBorder]}
-                  onPress={openCreateForm}
-                  activeOpacity={0.7}
-                >
-                  <Text style={styles.newCatListBtn}>+ New Category</Text>
-                </TouchableOpacity>
-              </View>
-            )}
-
-            {/* Create: inline new-category form */}
-            {catView === 'create' && (
-              <View style={styles.catDropdown}>
-                <TouchableOpacity style={styles.createBackRow} onPress={() => setCatView('list')} hitSlop={8}>
-                  <Text style={styles.backBtn}>← Back to list</Text>
-                </TouchableOpacity>
-                <View style={styles.createForm}>
-                  <TextInput
-                    style={styles.sheetInput}
-                    value={newCatName}
-                    onChangeText={setNewCatName}
-                    placeholder="Category name"
-                    placeholderTextColor={colors.textTertiary}
-                    autoFocus
-                    returnKeyType="done"
-                    onSubmitEditing={handleQuickCreateCat}
-                  />
-                  <View style={styles.colorGrid}>
-                    {CATEGORY_COLORS.map(c => (
+              {/* Expanded list */}
+              {catView === 'list' && (
+                <>
+                  {categories.map((item, index) => {
+                    const isSelected = item.id === categoryId;
+                    return (
                       <TouchableOpacity
-                        key={c.hex}
-                        style={[styles.colorSwatch, { backgroundColor: c.hex }, newCatColor === c.hex && styles.colorSwatchSelected]}
-                        onPress={() => setNewCatColor(c.hex)}
-                        activeOpacity={0.8}
+                        key={item.id}
+                        style={[styles.catDropdownRow, styles.catRowBorder, isSelected && styles.catRowSelected]}
+                        onPress={() => selectCategory(item.id)}
+                        activeOpacity={0.7}
                       >
-                        {newCatColor === c.hex && <Text style={styles.colorCheck}>✓</Text>}
+                        <View style={[styles.catRowDot, { backgroundColor: item.color }]} />
+                        <Text style={styles.catRowLabel}>{item.name}</Text>
+                        {isSelected && <Text style={styles.checkmark}>✓</Text>}
                       </TouchableOpacity>
-                    ))}
-                  </View>
+                    );
+                  })}
+                  {categories.length === 0 && (
+                    <View style={[styles.catEmptyWrap, styles.catRowBorder]}>
+                      <Text style={styles.catEmptyText}>No categories yet — create one below.</Text>
+                    </View>
+                  )}
                   <TouchableOpacity
-                    style={[styles.createSaveBtn, (!newCatName.trim() || creatingCat) && styles.saveBtnDisabled]}
-                    onPress={handleQuickCreateCat}
-                    disabled={!newCatName.trim() || creatingCat}
-                    activeOpacity={0.85}
+                    style={[styles.catDropdownRow, styles.catRowBorder]}
+                    onPress={openCreateForm}
+                    activeOpacity={0.7}
                   >
-                    <Text style={styles.saveBtnText}>{creatingCat ? 'Saving…' : 'Create & Select'}</Text>
+                    <Text style={styles.newCatListBtn}>+ New Category</Text>
                   </TouchableOpacity>
-                </View>
-              </View>
-            )}
+                </>
+              )}
 
-            {/* Save rule button — only show when category picker is collapsed */}
-            {catView === 'collapsed' && (
+              {/* Create new category inline */}
+              {catView === 'create' && (
+                <>
+                  <TouchableOpacity
+                    style={[styles.catDropdownRow, styles.catRowBorder]}
+                    onPress={() => setCatView('list')}
+                    hitSlop={8}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={styles.backBtn}>← Back to list</Text>
+                  </TouchableOpacity>
+                  <View style={[styles.createForm, styles.catRowBorder]}>
+                    <TextInput
+                      style={styles.sheetInput}
+                      value={newCatName}
+                      onChangeText={setNewCatName}
+                      placeholder="Category name"
+                      placeholderTextColor={colors.textTertiary}
+                      returnKeyType="done"
+                      onSubmitEditing={handleQuickCreateCat}
+                    />
+                    <View style={styles.colorGrid}>
+                      {CATEGORY_COLORS.map(c => (
+                        <TouchableOpacity
+                          key={c.hex}
+                          style={[styles.colorSwatch, { backgroundColor: c.hex }, newCatColor === c.hex && styles.colorSwatchSelected]}
+                          onPress={() => setNewCatColor(c.hex)}
+                          activeOpacity={0.8}
+                        >
+                          {newCatColor === c.hex && <Text style={styles.colorCheck}>✓</Text>}
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                    <TouchableOpacity
+                      style={[styles.createSaveBtn, (!newCatName.trim() || creatingCat) && styles.saveBtnDisabled]}
+                      onPress={handleQuickCreateCat}
+                      disabled={!newCatName.trim() || creatingCat}
+                      activeOpacity={0.85}
+                    >
+                      <Text style={styles.saveBtnText}>{creatingCat ? 'Saving…' : 'Create & Select'}</Text>
+                    </TouchableOpacity>
+                  </View>
+                </>
+              )}
+            </View>
+
+            {/* Save rule button — hide only while in create sub-form */}
+            {catView !== 'create' && (
               <TouchableOpacity
                 style={[styles.saveBtn, (!matchText.trim() || !categoryId || saving) && styles.saveBtnDisabled]}
                 onPress={handleSaveRule}
@@ -458,7 +464,7 @@ const styles = StyleSheet.create({
   sheet: {
     backgroundColor: colors.background,
     borderTopLeftRadius: radius.xl, borderTopRightRadius: radius.xl,
-    maxHeight: '90%', paddingBottom: spacing.lg,
+    maxHeight: '95%', paddingBottom: spacing.lg,
   },
   sheetHandle: {
     width: 40, height: 4, borderRadius: radius.full,
@@ -486,21 +492,6 @@ const styles = StyleSheet.create({
   tabText:       { fontFamily: font.semiBold, fontSize: 14, color: colors.textSecondary },
   tabTextActive: { color: colors.textOnColor },
 
-  // Collapsed pill
-  catPill: {
-    flexDirection: 'row', alignItems: 'center',
-    alignSelf: 'flex-start',
-    backgroundColor: colors.surface,
-    borderRadius: radius.full,
-    borderWidth: 1, borderColor: colors.border,
-    paddingVertical: 7, paddingHorizontal: spacing.md,
-    gap: spacing.xs,
-    marginBottom: spacing.lg,
-  },
-  catPillDot:     { width: 10, height: 10, borderRadius: radius.full },
-  catPillText:    { fontFamily: font.semiBold, fontSize: 15, color: colors.text },
-  catPillChevron: { fontSize: 11, color: colors.textTertiary, marginTop: 1 },
-
   // Inline dropdown container
   catDropdown: {
     backgroundColor: colors.surface,
@@ -509,10 +500,16 @@ const styles = StyleSheet.create({
     marginBottom: spacing.lg,
     overflow: 'hidden',
   },
+  catDropdownHeader: {
+    flexDirection: 'row', alignItems: 'center',
+    paddingHorizontal: spacing.md, paddingVertical: 14,
+  },
   catDropdownRow: {
     flexDirection: 'row', alignItems: 'center',
     paddingHorizontal: spacing.md, paddingVertical: 14,
   },
+  catChevron:      { fontSize: 10, color: colors.textTertiary },
+  catRowDotEmpty:  { width: 12, height: 12, borderRadius: radius.full, marginRight: spacing.sm, backgroundColor: colors.border },
   catRowBorder:   { borderTopWidth: 1, borderTopColor: colors.separator },
   catRowSelected: { backgroundColor: colors.primaryLight },
   catRowDot:      { width: 12, height: 12, borderRadius: radius.full, marginRight: spacing.sm },
