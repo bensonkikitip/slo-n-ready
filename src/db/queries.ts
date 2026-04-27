@@ -19,6 +19,8 @@ export interface ImportBatch {
   rows_total: number;
   rows_inserted: number;
   rows_skipped_duplicate: number;
+  rows_cleared: number;
+  rows_dropped: number;
 }
 
 export interface Transaction {
@@ -29,6 +31,7 @@ export interface Transaction {
   description: string;
   original_description: string;
   is_pending: number;
+  dropped_at: number | null;
   import_batch_id: string;
   created_at: number;
 }
@@ -70,8 +73,10 @@ export async function deleteAccount(id: string): Promise<void> {
 export async function insertImportBatch(batch: ImportBatch): Promise<void> {
   const db = await getDb();
   await db.runAsync(
-    `INSERT INTO import_batches (id, account_id, filename, imported_at, rows_total, rows_inserted, rows_skipped_duplicate)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO import_batches
+       (id, account_id, filename, imported_at, rows_total, rows_inserted,
+        rows_skipped_duplicate, rows_cleared, rows_dropped)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     batch.id,
     batch.account_id,
     batch.filename ?? null,
@@ -79,6 +84,8 @@ export async function insertImportBatch(batch: ImportBatch): Promise<void> {
     batch.rows_total,
     batch.rows_inserted,
     batch.rows_skipped_duplicate,
+    batch.rows_cleared,
+    batch.rows_dropped,
   );
 }
 
@@ -94,9 +101,11 @@ export interface ParsedRow {
 }
 
 export interface ImportResult {
-  inserted: number;
-  skipped: number;
-  total: number;
+  inserted: number;   // brand-new transactions added
+  cleared: number;    // previously-pending transactions that are now cleared
+  dropped: number;    // pending transactions that disappeared from the bank's feed
+  skipped: number;    // exact duplicates already in DB (no change needed)
+  total: number;      // rows in the CSV file
 }
 
 export async function importTransactions(
@@ -106,14 +115,19 @@ export async function importTransactions(
 ): Promise<ImportResult> {
   const db = await getDb();
   let inserted = 0;
+  let cleared = 0;
+  let dropped = 0;
   const now = Date.now();
+  const importedIds = new Set(rows.map((r) => r.id));
 
   await db.withTransactionAsync(async () => {
+    // --- Pass 1: insert new rows, update pending→cleared for existing rows ---
     for (const row of rows) {
       const result = await db.runAsync(
         `INSERT OR IGNORE INTO transactions
-           (id, account_id, date, amount_cents, description, original_description, is_pending, import_batch_id, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           (id, account_id, date, amount_cents, description, original_description,
+            is_pending, dropped_at, import_batch_id, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)`,
         row.id,
         accountId,
         row.date,
@@ -124,12 +138,60 @@ export async function importTransactions(
         batchId,
         now,
       );
-      if (result.changes > 0) inserted++;
+
+      if (result.changes > 0) {
+        inserted++;
+      } else if (!row.is_pending) {
+        // Row already exists. If the incoming data says it cleared, update the flag.
+        // Only touches is_pending; leaves everything else (description, amount, etc.) intact.
+        const update = await db.runAsync(
+          `UPDATE transactions
+             SET is_pending = 0
+           WHERE id = ? AND is_pending = 1 AND dropped_at IS NULL`,
+          row.id,
+        );
+        if (update.changes > 0) cleared++;
+      }
+    }
+
+    // --- Pass 2: detect dropped pendings ---
+    // A pending transaction is "dropped" when the bank's export covers its date
+    // but doesn't include it anymore (as either pending or cleared). We use the
+    // date range of this import as the coverage window.
+    if (rows.length > 0) {
+      const dates = rows.map((r) => r.date).sort();
+      const minDate = dates[0];
+      const maxDate = dates[dates.length - 1];
+
+      const pendingInRange = await db.getAllAsync<{ id: string }>(
+        `SELECT id FROM transactions
+         WHERE account_id = ? AND is_pending = 1 AND dropped_at IS NULL
+           AND date >= ? AND date <= ?`,
+        accountId,
+        minDate,
+        maxDate,
+      );
+
+      for (const p of pendingInRange) {
+        if (!importedIds.has(p.id)) {
+          await db.runAsync(
+            `UPDATE transactions SET dropped_at = ? WHERE id = ?`,
+            now,
+            p.id,
+          );
+          dropped++;
+        }
+      }
     }
   });
 
-  return { inserted, skipped: rows.length - inserted, total: rows.length };
+  const skipped = rows.length - inserted - cleared;
+  return { inserted, cleared, dropped, skipped, total: rows.length };
 }
+
+// Summary queries exclude dropped transactions so they don't inflate/deflate totals.
+// Pending transactions ARE included — they represent real expected charges.
+const ACTIVE_FILTER = `dropped_at IS NULL`;
 
 export async function getTransactions(accountId: string): Promise<Transaction[]> {
   const db = await getDb();
@@ -159,7 +221,7 @@ export async function getAccountSummary(accountId: string): Promise<AccountSumma
        COALESCE(SUM(CASE WHEN amount_cents < 0 THEN amount_cents ELSE 0 END), 0) AS expense_cents,
        COALESCE(SUM(amount_cents), 0) AS net_cents,
        COUNT(*) AS transaction_count
-     FROM transactions WHERE account_id = ?`,
+     FROM transactions WHERE account_id = ? AND ${ACTIVE_FILTER}`,
     accountId,
   );
   const lastBatch = await db.getFirstAsync<{ imported_at: number }>(
@@ -188,7 +250,7 @@ export async function getAllAccountsSummary(): Promise<AccountSummary> {
        COALESCE(SUM(CASE WHEN amount_cents < 0 THEN amount_cents ELSE 0 END), 0) AS expense_cents,
        COALESCE(SUM(amount_cents), 0) AS net_cents,
        COUNT(*) AS transaction_count
-     FROM transactions`,
+     FROM transactions WHERE ${ACTIVE_FILTER}`,
   );
   const lastBatch = await db.getFirstAsync<{ imported_at: number }>(
     `SELECT imported_at FROM import_batches ORDER BY imported_at DESC LIMIT 1`,

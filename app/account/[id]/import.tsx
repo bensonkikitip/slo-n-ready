@@ -103,6 +103,8 @@ export default function ImportScreen() {
         rows_total: importResult.total,
         rows_inserted: importResult.inserted,
         rows_skipped_duplicate: importResult.skipped,
+        rows_cleared: importResult.cleared,
+        rows_dropped: importResult.dropped,
       });
 
       setResult(importResult);
@@ -187,6 +189,12 @@ export default function ImportScreen() {
             <Text style={styles.doneTitle}>Import Complete</Text>
             <View style={styles.doneStats}>
               <StatRow label="Added" value={String(result.inserted)} />
+              {result.cleared > 0 && (
+                <StatRow label="Pending → Cleared" value={String(result.cleared)} highlight />
+              )}
+              {result.dropped > 0 && (
+                <StatRow label="Dropped (never posted)" value={String(result.dropped)} muted />
+              )}
               <StatRow label="Skipped (duplicates)" value={String(result.skipped)} />
               <StatRow label="Total in file" value={String(result.total)} />
             </View>
@@ -200,11 +208,11 @@ export default function ImportScreen() {
   );
 }
 
-function StatRow({ label, value }: { label: string; value: string }) {
+function StatRow({ label, value, highlight, muted }: { label: string; value: string; highlight?: boolean; muted?: boolean }) {
   return (
     <View style={styles.statRow}>
-      <Text style={styles.statLabel}>{label}</Text>
-      <Text style={styles.statValue}>{value}</Text>
+      <Text style={[styles.statLabel, muted && styles.statMuted]}>{label}</Text>
+      <Text style={[styles.statValue, highlight && styles.statHighlight, muted && styles.statMuted]}>{value}</Text>
     </View>
   );
 }
@@ -278,4 +286,6 @@ const styles = StyleSheet.create({
   },
   statLabel: { fontSize: 15, color: '#3a3a3c' },
   statValue: { fontSize: 15, fontWeight: '600', color: '#1c1c1e' },
+  statHighlight: { color: '#2a9d5c' },
+  statMuted: { color: '#aeaeb2' },
 });

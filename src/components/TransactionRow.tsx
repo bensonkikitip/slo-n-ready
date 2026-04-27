@@ -9,20 +9,24 @@ interface Props {
 }
 
 export function TransactionRow({ transaction, accountBadge }: Props) {
+  const isDropped = transaction.dropped_at != null;
   const isPositive = transaction.amount_cents >= 0;
   return (
-    <View style={styles.row}>
+    <View style={[styles.row, isDropped && styles.rowDropped]}>
       <View style={styles.left}>
-        <Text style={styles.description} numberOfLines={1}>
+        <Text style={[styles.description, isDropped && styles.descriptionDropped]} numberOfLines={1}>
           {transaction.description}
         </Text>
         <View style={styles.meta}>
           <Text style={styles.date}>{transaction.date}</Text>
           {accountBadge && <Text style={styles.badge}>{accountBadge}</Text>}
-          {!!transaction.is_pending && <Text style={styles.pending}>Pending</Text>}
+          {isDropped
+            ? <Text style={styles.dropped}>Dropped</Text>
+            : !!transaction.is_pending && <Text style={styles.pending}>Pending</Text>
+          }
         </View>
       </View>
-      <Text style={[styles.amount, isPositive ? styles.positive : styles.negative]}>
+      <Text style={[styles.amount, isDropped ? styles.amountDropped : isPositive ? styles.positive : styles.negative]}>
         {centsToDollars(transaction.amount_cents)}
       </Text>
     </View>
@@ -71,9 +75,25 @@ const styles = StyleSheet.create({
     color: '#ff9f0a',
     fontStyle: 'italic',
   },
+  dropped: {
+    fontSize: 11,
+    color: '#aeaeb2',
+    fontStyle: 'italic',
+  },
+  rowDropped: {
+    backgroundColor: '#f9f9f9',
+  },
+  descriptionDropped: {
+    color: '#aeaeb2',
+    textDecorationLine: 'line-through',
+  },
   amount: {
     fontSize: 15,
     fontWeight: '600',
+  },
+  amountDropped: {
+    color: '#aeaeb2',
+    textDecorationLine: 'line-through',
   },
   positive: { color: '#2a9d5c' },
   negative: { color: '#1c1c1e' },
