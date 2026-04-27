@@ -1,15 +1,18 @@
 import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
-import { Transaction } from '../db/queries';
+import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { Transaction, Category } from '../db/queries';
 import { centsToDollars } from '../domain/money';
 import { colors, font, spacing, radius } from '../theme';
+import { CategoryBadge } from './CategoryBadge';
 
 interface Props {
   transaction:  Transaction;
   accountBadge?: string;
+  category?:    Category | null;
+  onPress?:     () => void;
 }
 
-export function TransactionRow({ transaction, accountBadge }: Props) {
+export function TransactionRow({ transaction, accountBadge, category, onPress }: Props) {
   const isDropped  = transaction.dropped_at != null;
   const isPending  = !!transaction.is_pending && !isDropped;
   const isPositive = transaction.amount_cents >= 0;
@@ -20,7 +23,7 @@ export function TransactionRow({ transaction, accountBadge }: Props) {
     ? colors.income
     : colors.text;
 
-  return (
+  const content = (
     <View style={[styles.row, isDropped && styles.rowDropped]}>
       <View style={styles.left}>
         <Text
@@ -36,6 +39,7 @@ export function TransactionRow({ transaction, accountBadge }: Props) {
               <Text style={styles.badgeText}>{accountBadge}</Text>
             </View>
           )}
+          {category && <CategoryBadge name={category.name} color={category.color} />}
           {isDropped && (
             <View style={[styles.pill, styles.pillDropped]}>
               <Text style={[styles.pillText, { color: colors.dropped }]}>Dropped</Text>
@@ -53,6 +57,15 @@ export function TransactionRow({ transaction, accountBadge }: Props) {
       </Text>
     </View>
   );
+
+  if (onPress) {
+    return (
+      <TouchableOpacity onPress={onPress} activeOpacity={0.7}>
+        {content}
+      </TouchableOpacity>
+    );
+  }
+  return content;
 }
 
 const styles = StyleSheet.create({

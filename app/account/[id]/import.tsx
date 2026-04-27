@@ -13,6 +13,7 @@ import {
   insertImportBatch, updateImportBatchCounts, ImportResult, parseColumnConfig,
 } from '../../../src/db/queries';
 import { writeBackup } from '../../../src/db/backup';
+import { autoApplyRulesForAccount } from '../../../src/domain/rules-engine';
 import { parseCsv, ParsedRow } from '../../../src/parsers';
 import { assignTransactionIds } from '../../../src/domain/transaction-id';
 import { centsToDollars } from '../../../src/domain/money';
@@ -108,6 +109,9 @@ export default function ImportScreen() {
         rows_cleared:           importResult.cleared,
         rows_dropped:           importResult.dropped,
       });
+
+      // Auto-apply this account's rules to any newly uncategorized transactions
+      await autoApplyRulesForAccount(accountId);
 
       void writeBackup();
       setResult(importResult);

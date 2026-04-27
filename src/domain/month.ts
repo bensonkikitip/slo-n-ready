@@ -1,3 +1,19 @@
+export interface YearEntry {
+  key:   string; // 'YYYY'
+  label: string; // 'Current YTD' or 'YYYY'
+  count: number;
+}
+
+const CURRENT_YEAR = new Date().getFullYear().toString();
+
+export function buildYearList(dbYears: Array<{ year: string; count: number }>): YearEntry[] {
+  return dbYears.map(({ year, count }) => ({
+    key:   year,
+    label: year === CURRENT_YEAR ? 'Current YTD' : year,
+    count,
+  }));
+}
+
 export interface MonthEntry {
   key:   string; // 'YYYY-MM'
   label: string; // 'April 2026'

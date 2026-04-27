@@ -8,8 +8,10 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   Account, AccountSummary, getAllAccounts,
   getDistinctMonths, getAccountSummaryForMonth, getAllAccountsSummaryForMonth,
+  getDistinctYears, getAccountSummaryForYear, getAllAccountsSummaryForYear,
 } from '../src/db/queries';
-import { buildMonthList, MonthEntry } from '../src/domain/month';
+import { buildMonthList, buildYearList, MonthEntry, YearEntry } from '../src/domain/month';
+import { FilterMode } from '../src/components/MonthPicker';
 import { SummaryBar } from '../src/components/SummaryBar';
 import { MonthPicker } from '../src/components/MonthPicker';
 import { Sloth } from '../src/components/Sloth';
@@ -28,27 +30,32 @@ const EMPTY_SUMMARY: AccountSummary = {
 export default function AccountsListScreen() {
   const router   = useRouter();
   const insets   = useSafeAreaInsets();
-  const [accounts,   setAccounts]   = useState<AccountWithSummary[]>([]);
-  const [allSummary, setAllSummary] = useState<AccountSummary | null>(null);
-  const [months,     setMonths]     = useState<MonthEntry[]>([]);
+  const [accounts,      setAccounts]      = useState<AccountWithSummary[]>([]);
+  const [allSummary,    setAllSummary]    = useState<AccountSummary | null>(null);
+  const [months,        setMonths]        = useState<MonthEntry[]>([]);
+  const [years,         setYears]         = useState<YearEntry[]>([]);
   const [selectedMonth, setSelectedMonth] = useState('');
-  const [loading,   setLoading]   = useState(true);
-  const [hasBackup, setHasBackup] = useState(false);
+  const [selectedYear,  setSelectedYear]  = useState('');
+  const [filterMode,    setFilterMode]    = useState<FilterMode>('month');
+  const [loading,       setLoading]       = useState(true);
+  const [hasBackup,     setHasBackup]     = useState(false);
 
-  // Ref so the useFocusEffect (empty deps) can read the latest selected month
+  // Refs so useFocusEffect (empty deps) can always read latest values
   const selectedMonthRef = useRef('');
+  const selectedYearRef  = useRef('');
+  const filterModeRef    = useRef<FilterMode>('month');
 
-  function updateMonth(m: string) {
-    selectedMonthRef.current = m;
-    setSelectedMonth(m);
-  }
+  function updateMonth(m: string) { selectedMonthRef.current = m; setSelectedMonth(m); }
+  function updateYear(y: string)  { selectedYearRef.current  = y; setSelectedYear(y);  }
+  function updateMode(m: FilterMode) { filterModeRef.current = m; setFilterMode(m);    }
 
-  async function loadSummaries(accts: Account[], month: string) {
-    if (!month || accts.length === 0) return;
-    const [allSum, ...acctSums] = await Promise.all([
-      getAllAccountsSummaryForMonth(month),
-      ...accts.map(a => getAccountSummaryForMonth(a.id, month)),
-    ]);
+  async function loadSummaries(accts: Account[], mode: FilterMode, period: string) {
+    if (!period || accts.length === 0) return;
+    const [allSum, ...acctSums] = await Promise.all(
+      mode === 'year'
+        ? [getAllAccountsSummaryForYear(period),  ...accts.map(a => getAccountSummaryForYear(a.id,  period))]
+        : [getAllAccountsSummaryForMonth(period), ...accts.map(a => getAccountSummaryForMonth(a.id, period))],
+    );
     setAllSummary(allSum);
     setAccounts(accts.map((a, i) => ({ ...a, summary: acctSums[i] })));
   }
@@ -56,25 +63,37 @@ export default function AccountsListScreen() {
   useFocusEffect(useCallback(() => {
     let active = true;
     (async () => {
-      const [accts, dbMonths] = await Promise.all([
-        getAllAccounts(), getDistinctMonths(),
+      const [accts, dbMonths, dbYears] = await Promise.all([
+        getAllAccounts(), getDistinctMonths(), getDistinctYears(),
       ]);
       if (!active) return;
 
       const monthList = buildMonthList(dbMonths);
-      const cur = selectedMonthRef.current;
-      const month = (cur && monthList.some(m => m.key === cur))
-        ? cur
+      const yearList  = buildYearList(dbYears);
+
+      const curMonth = selectedMonthRef.current;
+      const curYear  = selectedYearRef.current;
+      const curMode  = filterModeRef.current;
+
+      const month = (curMonth && monthList.some(m => m.key === curMonth))
+        ? curMonth
         : monthList.find(m => m.count > 0)?.key ?? '';
+      const year = (curYear && yearList.some(y => y.key === curYear))
+        ? curYear
+        : yearList[0]?.key ?? '';
 
       setMonths(monthList);
+      setYears(yearList);
       updateMonth(month);
+      updateYear(year);
 
-      if (month && accts.length > 0) {
-        const [allSum, ...acctSums] = await Promise.all([
-          getAllAccountsSummaryForMonth(month),
-          ...accts.map(a => getAccountSummaryForMonth(a.id, month)),
-        ]);
+      const period = curMode === 'year' ? year : month;
+      if (period && accts.length > 0) {
+        const [allSum, ...acctSums] = await Promise.all(
+          curMode === 'year'
+            ? [getAllAccountsSummaryForYear(period),  ...accts.map(a => getAccountSummaryForYear(a.id,  period))]
+            : [getAllAccountsSummaryForMonth(period), ...accts.map(a => getAccountSummaryForMonth(a.id, period))],
+        );
         if (!active) return;
         setAllSummary(allSum);
         setAccounts(accts.map((a, i) => ({ ...a, summary: acctSums[i] })));
@@ -137,7 +156,14 @@ export default function AccountsListScreen() {
 
   async function handleMonthChange(month: string) {
     updateMonth(month);
-    await loadSummaries(accounts.map(a => a), month);
+    updateMode('month');
+    await loadSummaries(accounts.map(a => a), 'month', month);
+  }
+
+  async function handleYearChange(year: string) {
+    updateYear(year);
+    updateMode('year');
+    await loadSummaries(accounts.map(a => a), 'year', year);
   }
 
   if (loading) {
@@ -161,9 +187,14 @@ export default function AccountsListScreen() {
         options={{
           title: 'Slo N Ready',
           headerRight: () => (
-            <TouchableOpacity onPress={() => router.push('/backup')} hitSlop={12}>
-              <Text style={styles.backupBtn}>Backup</Text>
-            </TouchableOpacity>
+            <View style={styles.headerBtnsRight}>
+              <TouchableOpacity onPress={() => router.push('/categories')} hitSlop={12}>
+                <Text style={styles.categoriesBtn}>Categories</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => router.push('/backup')} hitSlop={12}>
+                <Text style={styles.backupBtn}>Backup</Text>
+              </TouchableOpacity>
+            </View>
           ),
         }}
       />
@@ -182,12 +213,16 @@ export default function AccountsListScreen() {
           ]}
           ListHeaderComponent={hasAccounts ? (
             <>
-              {/* Month picker */}
-              {months.length > 0 && selectedMonth && (
+              {/* Date picker */}
+              {(months.length > 0 || years.length > 0) && (
                 <MonthPicker
                   months={months}
-                  selected={selectedMonth}
-                  onChange={handleMonthChange}
+                  years={years}
+                  filterMode={filterMode}
+                  selectedMonth={selectedMonth}
+                  selectedYear={selectedYear}
+                  onChangeMonth={handleMonthChange}
+                  onChangeYear={handleYearChange}
                 />
               )}
 
@@ -367,5 +402,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3, shadowRadius: 8, elevation: 6,
   },
   fabText:   { fontSize: 30, color: colors.textOnColor, lineHeight: 34, fontFamily: font.regular },
-  backupBtn: { fontFamily: font.semiBold, fontSize: 15, color: colors.primary },
+  headerBtnsRight: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
+  categoriesBtn:   { fontFamily: font.semiBold, fontSize: 15, color: colors.primary },
+  backupBtn:       { fontFamily: font.semiBold, fontSize: 15, color: colors.primary },
 });

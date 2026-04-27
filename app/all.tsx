@@ -3,52 +3,77 @@ import { View, FlatList, Text, StyleSheet, ActivityIndicator } from 'react-nativ
 import { useFocusEffect, Stack } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
-  Account, Transaction,
+  Account, Transaction, Category,
   getAllAccounts, getDistinctMonths, getAllTransactionsForMonth,
+  getDistinctYears, getAllTransactionsForYear,
+  getAllCategories, setTransactionCategory,
 } from '../src/db/queries';
-import { buildMonthList, MonthEntry } from '../src/domain/month';
+import { buildMonthList, buildYearList, MonthEntry, YearEntry } from '../src/domain/month';
+import { FilterMode } from '../src/components/MonthPicker';
 import { SummaryBar } from '../src/components/SummaryBar';
 import { MonthPicker } from '../src/components/MonthPicker';
 import { TransactionRow } from '../src/components/TransactionRow';
+import { CategoryPickerSheet } from '../src/components/CategoryPickerSheet';
 import { Sloth } from '../src/components/Sloth';
+import { writeBackup } from '../src/db/backup';
 import { colors, font, spacing } from '../src/theme';
 
 export default function AllAccountsScreen() {
   const insets = useSafeAreaInsets();
-  const [accounts,     setAccounts]     = useState<Account[]>([]);
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [months,       setMonths]       = useState<MonthEntry[]>([]);
-  const [selectedMonth, setSelectedMonth] = useState('');
-  const [loading, setLoading] = useState(true);
-  const [hasAnyData, setHasAnyData] = useState(false);
+  const [accounts,              setAccounts]              = useState<Account[]>([]);
+  const [transactions,          setTransactions]          = useState<Transaction[]>([]);
+  const [months,                setMonths]                = useState<MonthEntry[]>([]);
+  const [years,                 setYears]                 = useState<YearEntry[]>([]);
+  const [selectedMonth,         setSelectedMonth]         = useState('');
+  const [selectedYear,          setSelectedYear]          = useState('');
+  const [filterMode,            setFilterMode]            = useState<FilterMode>('month');
+  const [categories,            setCategories]            = useState<Category[]>([]);
+  const [selectedTransactionId, setSelectedTransactionId] = useState<string | null>(null);
+  const [loading,               setLoading]               = useState(true);
+  const [hasAnyData,            setHasAnyData]            = useState(false);
 
   const selectedMonthRef = useRef('');
+  const selectedYearRef  = useRef('');
+  const filterModeRef    = useRef<FilterMode>('month');
 
-  function updateMonth(m: string) {
-    selectedMonthRef.current = m;
-    setSelectedMonth(m);
-  }
+  function updateMonth(m: string)    { selectedMonthRef.current = m; setSelectedMonth(m); }
+  function updateYear(y: string)     { selectedYearRef.current  = y; setSelectedYear(y);  }
+  function updateMode(m: FilterMode) { filterModeRef.current    = m; setFilterMode(m);    }
 
   useFocusEffect(useCallback(() => {
     let active = true;
     (async () => {
-      const [accts, dbMonths] = await Promise.all([
-        getAllAccounts(), getDistinctMonths(),
+      const [accts, dbMonths, dbYears, cats] = await Promise.all([
+        getAllAccounts(), getDistinctMonths(), getDistinctYears(), getAllCategories(),
       ]);
       if (!active) return;
 
       const monthList = buildMonthList(dbMonths);
-      const cur       = selectedMonthRef.current;
-      const month     = (cur && monthList.some(m => m.key === cur))
-        ? cur
-        : monthList.find(m => m.count > 0)?.key ?? '';
+      const yearList  = buildYearList(dbYears);
+
+      const curMonth = selectedMonthRef.current;
+      const curYear  = selectedYearRef.current;
+      const curMode  = filterModeRef.current;
+
+      const month = (curMonth && monthList.some(m => m.key === curMonth))
+        ? curMonth : monthList.find(m => m.count > 0)?.key ?? '';
+      const year  = (curYear && yearList.some(y => y.key === curYear))
+        ? curYear : yearList[0]?.key ?? '';
 
       setAccounts(accts);
       setMonths(monthList);
+      setYears(yearList);
+      setCategories(cats);
       setHasAnyData(dbMonths.length > 0);
       updateMonth(month);
+      updateYear(year);
 
-      const txns = month ? await getAllTransactionsForMonth(month) : [];
+      const period = curMode === 'year' ? year : month;
+      const txns = period
+        ? await (curMode === 'year'
+            ? getAllTransactionsForYear(period)
+            : getAllTransactionsForMonth(period))
+        : [];
       if (!active) return;
       setTransactions(txns);
       setLoading(false);
@@ -58,13 +83,24 @@ export default function AllAccountsScreen() {
 
   async function handleMonthChange(month: string) {
     updateMonth(month);
-    const txns = await getAllTransactionsForMonth(month);
-    setTransactions(txns);
+    updateMode('month');
+    setTransactions(await getAllTransactionsForMonth(month));
+  }
+
+  async function handleYearChange(year: string) {
+    updateYear(year);
+    updateMode('year');
+    setTransactions(await getAllTransactionsForYear(year));
   }
 
   const accountMap = useMemo(
     () => Object.fromEntries(accounts.map(a => [a.id, a])),
     [accounts],
+  );
+
+  const categoryMap = useMemo(
+    () => Object.fromEntries(categories.map(c => [c.id, c])),
+    [categories],
   );
 
   const monthSummary = useMemo(() => {
@@ -75,6 +111,18 @@ export default function AllAccountsScreen() {
       net_cents:     active.reduce((s, t) => s + t.amount_cents, 0),
     };
   }, [transactions]);
+
+  async function handleCategorySelect(categoryId: string | null) {
+    if (!selectedTransactionId) return;
+    await setTransactionCategory(selectedTransactionId, categoryId, true, null);
+    setTransactions(prev => prev.map(t =>
+      t.id === selectedTransactionId
+        ? { ...t, category_id: categoryId, category_set_manually: 1, applied_rule_id: null }
+        : t,
+    ));
+    setSelectedTransactionId(null);
+    void writeBackup();
+  }
 
   if (loading) {
     return (
@@ -89,11 +137,15 @@ export default function AllAccountsScreen() {
     <>
       <Stack.Screen options={{ title: 'All Accounts' }} />
       <View style={styles.container}>
-        {months.length > 0 && selectedMonth && (
+        {(months.length > 0 || years.length > 0) && (
           <MonthPicker
             months={months}
-            selected={selectedMonth}
-            onChange={handleMonthChange}
+            years={years}
+            filterMode={filterMode}
+            selectedMonth={selectedMonth}
+            selectedYear={selectedYear}
+            onChangeMonth={handleMonthChange}
+            onChangeYear={handleYearChange}
           />
         )}
 
@@ -110,6 +162,8 @@ export default function AllAccountsScreen() {
             <TransactionRow
               transaction={item}
               accountBadge={accountMap[item.account_id]?.name}
+              category={item.category_id ? categoryMap[item.category_id] ?? null : null}
+              onPress={() => setSelectedTransactionId(item.id)}
             />
           )}
           contentContainerStyle={[
@@ -131,6 +185,16 @@ export default function AllAccountsScreen() {
           }
         />
       </View>
+
+      <CategoryPickerSheet
+        visible={selectedTransactionId !== null}
+        categories={categories}
+        currentCategoryId={
+          transactions.find(t => t.id === selectedTransactionId)?.category_id ?? null
+        }
+        onClose={() => setSelectedTransactionId(null)}
+        onSelect={handleCategorySelect}
+      />
     </>
   );
 }

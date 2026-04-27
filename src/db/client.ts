@@ -107,6 +107,26 @@ export async function getDb(): Promise<SQLite.SQLiteDatabase> {
     await db.execAsync('PRAGMA user_version = 4');
   }
 
+  if (version < 5) {
+    try { await db.execAsync(`CREATE TABLE IF NOT EXISTS categories (
+      id TEXT PRIMARY KEY, name TEXT NOT NULL, color TEXT NOT NULL, created_at INTEGER NOT NULL
+    )`); } catch {}
+    try { await db.execAsync(`CREATE TABLE IF NOT EXISTS rules (
+      id          TEXT PRIMARY KEY,
+      account_id  TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+      category_id TEXT NOT NULL REFERENCES categories(id) ON DELETE CASCADE,
+      match_type  TEXT NOT NULL CHECK (match_type IN ('contains','starts_with','ends_with','equals')),
+      match_text  TEXT NOT NULL,
+      priority    INTEGER NOT NULL DEFAULT 100,
+      created_at  INTEGER NOT NULL
+    )`); } catch {}
+    try { await db.execAsync(`CREATE INDEX IF NOT EXISTS idx_rules_account_priority ON rules (account_id, priority ASC)`); } catch {}
+    try { await db.execAsync(`ALTER TABLE transactions ADD COLUMN category_id TEXT REFERENCES categories(id) ON DELETE SET NULL`); } catch {}
+    try { await db.execAsync(`ALTER TABLE transactions ADD COLUMN category_set_manually INTEGER NOT NULL DEFAULT 0`); } catch {}
+    try { await db.execAsync(`ALTER TABLE transactions ADD COLUMN applied_rule_id TEXT REFERENCES rules(id) ON DELETE SET NULL`); } catch {}
+    await db.execAsync('PRAGMA user_version = 5');
+  }
+
   _db = db;
   return db;
 }

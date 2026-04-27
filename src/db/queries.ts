@@ -44,6 +44,28 @@ export interface Transaction {
   dropped_at: number | null;
   import_batch_id: string;
   created_at: number;
+  category_id: string | null;
+  category_set_manually: number;
+  applied_rule_id: string | null;
+}
+
+export interface Category {
+  id: string;
+  name: string;
+  color: string;
+  created_at: number;
+}
+
+export type MatchType = 'contains' | 'starts_with' | 'ends_with' | 'equals';
+
+export interface Rule {
+  id: string;
+  account_id: string;
+  category_id: string;
+  match_type: MatchType;
+  match_text: string;
+  priority: number;
+  created_at: number;
 }
 
 export interface AccountSummary {
@@ -310,6 +332,25 @@ export async function getAllAccountsSummary(): Promise<AccountSummary> {
 
 // --- Month-filtered queries ---
 
+export async function getDistinctYears(accountId?: string): Promise<Array<{ year: string; count: number }>> {
+  const db = await getDb();
+  if (accountId) {
+    return db.getAllAsync<{ year: string; count: number }>(
+      `SELECT substr(date, 1, 4) AS year, COUNT(*) AS count
+       FROM transactions
+       WHERE account_id = ? AND dropped_at IS NULL
+       GROUP BY year ORDER BY year DESC`,
+      accountId,
+    );
+  }
+  return db.getAllAsync<{ year: string; count: number }>(
+    `SELECT substr(date, 1, 4) AS year, COUNT(*) AS count
+     FROM transactions
+     WHERE dropped_at IS NULL
+     GROUP BY year ORDER BY year DESC`,
+  );
+}
+
 export async function getDistinctMonths(accountId?: string): Promise<Array<{ month: string; count: number }>> {
   const db = await getDb();
   if (accountId) {
@@ -402,4 +443,205 @@ export async function getAllAccountsSummaryForMonth(month: string): Promise<Acco
     transaction_count: row?.transaction_count ?? 0,
     last_imported_at:  lastBatch?.imported_at ?? null,
   };
+}
+
+// --- Year-level queries ---
+
+export async function getTransactionsForYear(accountId: string, year: string): Promise<Transaction[]> {
+  const db = await getDb();
+  return db.getAllAsync<Transaction>(
+    `SELECT * FROM transactions
+     WHERE account_id = ? AND substr(date, 1, 4) = ?
+     ORDER BY date DESC, created_at DESC`,
+    accountId, year,
+  );
+}
+
+export async function getAllTransactionsForYear(year: string): Promise<Transaction[]> {
+  const db = await getDb();
+  return db.getAllAsync<Transaction>(
+    `SELECT * FROM transactions
+     WHERE substr(date, 1, 4) = ?
+     ORDER BY date DESC, created_at DESC`,
+    year,
+  );
+}
+
+export async function getAccountSummaryForYear(accountId: string, year: string): Promise<AccountSummary> {
+  const db = await getDb();
+  const row = await db.getFirstAsync<{
+    income_cents: number; expense_cents: number;
+    net_cents: number; transaction_count: number;
+  }>(
+    `SELECT
+       COALESCE(SUM(CASE WHEN amount_cents > 0 THEN amount_cents ELSE 0 END), 0) AS income_cents,
+       COALESCE(SUM(CASE WHEN amount_cents < 0 THEN amount_cents ELSE 0 END), 0) AS expense_cents,
+       COALESCE(SUM(amount_cents), 0) AS net_cents,
+       COUNT(*) AS transaction_count
+     FROM transactions
+     WHERE account_id = ? AND ${ACTIVE_FILTER} AND substr(date, 1, 4) = ?`,
+    accountId, year,
+  );
+  const lastBatch = await db.getFirstAsync<{ imported_at: number }>(
+    `SELECT imported_at FROM import_batches WHERE account_id = ? ORDER BY imported_at DESC LIMIT 1`,
+    accountId,
+  );
+  return {
+    income_cents:      row?.income_cents      ?? 0,
+    expense_cents:     row?.expense_cents     ?? 0,
+    net_cents:         row?.net_cents         ?? 0,
+    transaction_count: row?.transaction_count ?? 0,
+    last_imported_at:  lastBatch?.imported_at ?? null,
+  };
+}
+
+export async function getAllAccountsSummaryForYear(year: string): Promise<AccountSummary> {
+  const db = await getDb();
+  const row = await db.getFirstAsync<{
+    income_cents: number; expense_cents: number;
+    net_cents: number; transaction_count: number;
+  }>(
+    `SELECT
+       COALESCE(SUM(CASE WHEN amount_cents > 0 THEN amount_cents ELSE 0 END), 0) AS income_cents,
+       COALESCE(SUM(CASE WHEN amount_cents < 0 THEN amount_cents ELSE 0 END), 0) AS expense_cents,
+       COALESCE(SUM(amount_cents), 0) AS net_cents,
+       COUNT(*) AS transaction_count
+     FROM transactions
+     WHERE ${ACTIVE_FILTER} AND substr(date, 1, 4) = ?`,
+    year,
+  );
+  const lastBatch = await db.getFirstAsync<{ imported_at: number }>(
+    `SELECT imported_at FROM import_batches ORDER BY imported_at DESC LIMIT 1`,
+  );
+  return {
+    income_cents:      row?.income_cents      ?? 0,
+    expense_cents:     row?.expense_cents     ?? 0,
+    net_cents:         row?.net_cents         ?? 0,
+    transaction_count: row?.transaction_count ?? 0,
+    last_imported_at:  lastBatch?.imported_at ?? null,
+  };
+}
+
+// --- Categories ---
+
+export async function getAllCategories(): Promise<Category[]> {
+  const db = await getDb();
+  return db.getAllAsync<Category>(`SELECT * FROM categories ORDER BY name ASC`);
+}
+
+export async function insertCategory(category: Omit<Category, 'created_at'>): Promise<void> {
+  const db = await getDb();
+  await db.runAsync(
+    `INSERT INTO categories (id, name, color, created_at) VALUES (?, ?, ?, ?)`,
+    category.id, category.name, category.color, Date.now(),
+  );
+}
+
+export async function updateCategory(id: string, fields: { name?: string; color?: string }): Promise<void> {
+  const db = await getDb();
+  const sets: string[] = [];
+  const values: string[] = [];
+  if (fields.name  !== undefined) { sets.push('name = ?');  values.push(fields.name); }
+  if (fields.color !== undefined) { sets.push('color = ?'); values.push(fields.color); }
+  if (sets.length === 0) return;
+  values.push(id);
+  await db.runAsync(`UPDATE categories SET ${sets.join(', ')} WHERE id = ?`, ...values);
+}
+
+export async function deleteCategory(id: string): Promise<void> {
+  const db = await getDb();
+  await db.runAsync(`DELETE FROM categories WHERE id = ?`, id);
+}
+
+// --- Rules ---
+
+export async function getRulesForAccount(accountId: string): Promise<Rule[]> {
+  const db = await getDb();
+  return db.getAllAsync<Rule>(
+    `SELECT * FROM rules WHERE account_id = ? ORDER BY priority ASC`,
+    accountId,
+  );
+}
+
+export async function insertRule(rule: Omit<Rule, 'created_at'>): Promise<void> {
+  const db = await getDb();
+  await db.runAsync(
+    `INSERT INTO rules (id, account_id, category_id, match_type, match_text, priority, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    rule.id, rule.account_id, rule.category_id, rule.match_type,
+    rule.match_text, rule.priority, Date.now(),
+  );
+}
+
+export async function updateRule(
+  id: string,
+  fields: { match_type?: MatchType; match_text?: string; category_id?: string },
+): Promise<void> {
+  const db = await getDb();
+  const sets: string[] = [];
+  const values: string[] = [];
+  if (fields.match_type  !== undefined) { sets.push('match_type = ?');  values.push(fields.match_type); }
+  if (fields.match_text  !== undefined) { sets.push('match_text = ?');  values.push(fields.match_text); }
+  if (fields.category_id !== undefined) { sets.push('category_id = ?'); values.push(fields.category_id); }
+  if (sets.length === 0) return;
+  values.push(id);
+  await db.runAsync(`UPDATE rules SET ${sets.join(', ')} WHERE id = ?`, ...values);
+}
+
+export async function deleteRule(id: string): Promise<void> {
+  const db = await getDb();
+  await db.runAsync(`DELETE FROM rules WHERE id = ?`, id);
+}
+
+export async function reorderRules(orderedIds: string[]): Promise<void> {
+  const db = await getDb();
+  await db.withTransactionAsync(async () => {
+    for (let i = 0; i < orderedIds.length; i++) {
+      await db.runAsync(`UPDATE rules SET priority = ? WHERE id = ?`, i + 1, orderedIds[i]);
+    }
+  });
+}
+
+// --- Categorization ---
+
+export async function setTransactionCategory(
+  txId: string,
+  categoryId: string | null,
+  manual: boolean,
+  ruleId?: string | null,
+): Promise<void> {
+  const db = await getDb();
+  await db.runAsync(
+    `UPDATE transactions
+     SET category_id = ?, category_set_manually = ?, applied_rule_id = ?
+     WHERE id = ?`,
+    categoryId, manual ? 1 : 0, ruleId ?? null, txId,
+  );
+}
+
+export async function bulkSetTransactionCategories(
+  assignments: Array<{ transactionId: string; categoryId: string; ruleId: string }>,
+): Promise<void> {
+  if (assignments.length === 0) return;
+  const db = await getDb();
+  await db.withTransactionAsync(async () => {
+    for (const a of assignments) {
+      await db.runAsync(
+        `UPDATE transactions
+         SET category_id = ?, category_set_manually = 0, applied_rule_id = ?
+         WHERE id = ? AND category_set_manually = 0`,
+        a.categoryId, a.ruleId, a.transactionId,
+      );
+    }
+  });
+}
+
+export async function getUncategorizedTransactionsForAccount(accountId: string): Promise<Transaction[]> {
+  const db = await getDb();
+  return db.getAllAsync<Transaction>(
+    `SELECT * FROM transactions
+     WHERE account_id = ? AND category_id IS NULL AND category_set_manually = 0 AND dropped_at IS NULL
+     ORDER BY date DESC, created_at DESC`,
+    accountId,
+  );
 }

@@ -9,6 +9,8 @@ export interface BackupData {
   accounts:       any[];
   import_batches: any[];
   transactions:   any[];
+  categories:     any[];
+  rules:          any[];
 }
 
 export interface BackupInfo {
@@ -38,17 +40,21 @@ export async function getBackupInfo(): Promise<BackupInfo> {
 export async function writeBackup(): Promise<void> {
   try {
     const db = await getDb();
-    const [accounts, import_batches, transactions] = await Promise.all([
+    const [accounts, import_batches, transactions, categories, rules] = await Promise.all([
       db.getAllAsync<any>('SELECT * FROM accounts ORDER BY created_at ASC'),
       db.getAllAsync<any>('SELECT * FROM import_batches ORDER BY imported_at ASC'),
       db.getAllAsync<any>('SELECT * FROM transactions ORDER BY created_at ASC'),
+      db.getAllAsync<any>('SELECT * FROM categories ORDER BY created_at ASC'),
+      db.getAllAsync<any>('SELECT * FROM rules ORDER BY priority ASC'),
     ]);
     const data: BackupData = {
-      version:        1,
+      version:        2,
       exported_at:    Date.now(),
       accounts,
       import_batches,
       transactions,
+      categories,
+      rules,
     };
     await FileSystem.writeAsStringAsync(BACKUP_PATH, JSON.stringify(data));
   } catch {
@@ -60,7 +66,8 @@ export async function readBackupFromPath(uri: string): Promise<BackupData | null
   try {
     const text = await FileSystem.readAsStringAsync(uri);
     const data = JSON.parse(text);
-    if (data.version !== 1 || !Array.isArray(data.accounts) || !Array.isArray(data.transactions)) {
+    // Accept both v1 (no categories) and v2 backups
+    if ((data.version !== 1 && data.version !== 2) || !Array.isArray(data.accounts) || !Array.isArray(data.transactions)) {
       return null;
     }
     return data as BackupData;
@@ -72,14 +79,31 @@ export async function readBackupFromPath(uri: string): Promise<BackupData | null
 export async function restoreFromData(data: BackupData): Promise<void> {
   const db = await getDb();
   await db.withTransactionAsync(async () => {
+    // Delete in FK-safe order (children before parents)
     await db.execAsync('DELETE FROM transactions');
     await db.execAsync('DELETE FROM import_batches');
+    await db.execAsync('DELETE FROM rules');
+    await db.execAsync('DELETE FROM categories');
     await db.execAsync('DELETE FROM accounts');
 
     for (const a of data.accounts) {
       await db.runAsync(
         'INSERT OR REPLACE INTO accounts (id, name, type, csv_format, column_config, created_at) VALUES (?, ?, ?, ?, ?, ?)',
         a.id, a.name, a.type, a.csv_format, a.column_config ?? null, a.created_at,
+      );
+    }
+
+    for (const c of (data.categories ?? [])) {
+      await db.runAsync(
+        'INSERT OR REPLACE INTO categories (id, name, color, created_at) VALUES (?, ?, ?, ?)',
+        c.id, c.name, c.color, c.created_at,
+      );
+    }
+
+    for (const r of (data.rules ?? [])) {
+      await db.runAsync(
+        'INSERT OR REPLACE INTO rules (id, account_id, category_id, match_type, match_text, priority, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        r.id, r.account_id, r.category_id, r.match_type, r.match_text, r.priority, r.created_at,
       );
     }
 
@@ -94,10 +118,11 @@ export async function restoreFromData(data: BackupData): Promise<void> {
 
     for (const t of data.transactions) {
       await db.runAsync(
-        'INSERT OR REPLACE INTO transactions (id, account_id, date, amount_cents, description, original_description, is_pending, dropped_at, import_batch_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        'INSERT OR REPLACE INTO transactions (id, account_id, date, amount_cents, description, original_description, is_pending, dropped_at, import_batch_id, created_at, category_id, category_set_manually, applied_rule_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
         t.id, t.account_id, t.date, t.amount_cents, t.description,
         t.original_description, t.is_pending, t.dropped_at ?? null,
         t.import_batch_id, t.created_at,
+        t.category_id ?? null, t.category_set_manually ?? 0, t.applied_rule_id ?? null,
       );
     }
   });
