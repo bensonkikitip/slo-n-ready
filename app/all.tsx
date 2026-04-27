@@ -12,6 +12,7 @@ import { buildMonthList, buildYearList, MonthEntry, YearEntry } from '../src/dom
 import { FilterMode } from '../src/components/MonthPicker';
 import { SummaryBar } from '../src/components/SummaryBar';
 import { MonthPicker } from '../src/components/MonthPicker';
+import { CategoryPicker } from '../src/components/CategoryPicker';
 import { TransactionRow } from '../src/components/TransactionRow';
 import { CategoryPickerSheet } from '../src/components/CategoryPickerSheet';
 import { Sloth } from '../src/components/Sloth';
@@ -29,6 +30,7 @@ export default function AllAccountsScreen() {
   const [filterMode,            setFilterMode]            = useState<FilterMode>('month');
   const [categories,            setCategories]            = useState<Category[]>([]);
   const [selectedTransactionId, setSelectedTransactionId] = useState<string | null>(null);
+  const [categoryFilters,       setCategoryFilters]       = useState<string[]>([]);
   const [loading,               setLoading]               = useState(true);
   const [hasAnyData,            setHasAnyData]            = useState(false);
 
@@ -84,12 +86,14 @@ export default function AllAccountsScreen() {
   async function handleMonthChange(month: string) {
     updateMonth(month);
     updateMode('month');
+    setCategoryFilters([]);
     setTransactions(await getAllTransactionsForMonth(month));
   }
 
   async function handleYearChange(year: string) {
     updateYear(year);
     updateMode('year');
+    setCategoryFilters([]);
     setTransactions(await getAllTransactionsForYear(year));
   }
 
@@ -103,14 +107,27 @@ export default function AllAccountsScreen() {
     [categories],
   );
 
+  const categoriesInPeriod = useMemo(() => {
+    const ids = new Set(
+      transactions.filter(t => t.category_id && t.dropped_at === null).map(t => t.category_id!),
+    );
+    return categories.filter(c => ids.has(c.id));
+  }, [transactions, categories]);
+
+  const filteredTransactions = useMemo(() =>
+    categoryFilters.length > 0
+      ? transactions.filter(t => t.category_id !== null && categoryFilters.includes(t.category_id))
+      : transactions,
+  [transactions, categoryFilters]);
+
   const monthSummary = useMemo(() => {
-    const active = transactions.filter(t => t.dropped_at === null);
+    const active = filteredTransactions.filter(t => t.dropped_at === null);
     return {
       income_cents:  active.filter(t => t.amount_cents > 0).reduce((s, t) => s + t.amount_cents, 0),
       expense_cents: active.filter(t => t.amount_cents < 0).reduce((s, t) => s + t.amount_cents, 0),
       net_cents:     active.reduce((s, t) => s + t.amount_cents, 0),
     };
-  }, [transactions]);
+  }, [filteredTransactions]);
 
   async function handleCategorySelect(categoryId: string | null) {
     if (!selectedTransactionId) return;
@@ -133,20 +150,31 @@ export default function AllAccountsScreen() {
     );
   }
 
+  const showPickers = months.length > 0 || years.length > 0;
+
   return (
     <>
       <Stack.Screen options={{ title: 'All Accounts' }} />
       <View style={styles.container}>
-        {(months.length > 0 || years.length > 0) && (
-          <MonthPicker
-            months={months}
-            years={years}
-            filterMode={filterMode}
-            selectedMonth={selectedMonth}
-            selectedYear={selectedYear}
-            onChangeMonth={handleMonthChange}
-            onChangeYear={handleYearChange}
-          />
+        {showPickers && (
+          <View style={styles.pickerRow}>
+            <MonthPicker
+              months={months}
+              years={years}
+              filterMode={filterMode}
+              selectedMonth={selectedMonth}
+              selectedYear={selectedYear}
+              onChangeMonth={handleMonthChange}
+              onChangeYear={handleYearChange}
+            />
+            {categoriesInPeriod.length > 0 && (
+              <CategoryPicker
+                categories={categoriesInPeriod}
+                selected={categoryFilters}
+                onSelect={setCategoryFilters}
+              />
+            )}
+          </View>
         )}
 
         <SummaryBar
@@ -156,7 +184,7 @@ export default function AllAccountsScreen() {
         />
 
         <FlatList
-          data={transactions}
+          data={filteredTransactions}
           keyExtractor={item => item.id}
           renderItem={({ item }) => (
             <TransactionRow
@@ -167,19 +195,21 @@ export default function AllAccountsScreen() {
             />
           )}
           contentContainerStyle={[
-            transactions.length === 0 && styles.emptyContainer,
+            filteredTransactions.length === 0 && styles.emptyContainer,
             { paddingBottom: insets.bottom + spacing.lg },
           ]}
           ListEmptyComponent={
             <View style={styles.emptyState}>
               <Sloth sloth="meditating" size={130} />
               <Text style={styles.emptyTitle}>
-                {!hasAnyData ? "I'm ready when you are!" : 'Nothing here this month'}
+                {!hasAnyData ? "I'm ready when you are!" : 'Nothing here'}
               </Text>
               <Text style={styles.emptyBody}>
                 {!hasAnyData
                   ? "Import a CSV from one of your accounts and I'll show everything together here."
-                  : "I don't see any transactions for this month — try a different one."}
+                  : categoryFilters.length > 0
+                  ? "No transactions match the selected categories."
+                  : "I don't see any transactions for this period — try a different one."}
               </Text>
             </View>
           }
@@ -203,6 +233,13 @@ export default function AllAccountsScreen() {
 const styles = StyleSheet.create({
   container:      { flex: 1, backgroundColor: colors.background },
   center:         { flex: 1, justifyContent: 'center', alignItems: 'center', gap: spacing.md, backgroundColor: colors.background },
+  pickerRow: {
+    flexDirection:     'row',
+    alignItems:        'center',
+    paddingHorizontal: spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.separator,
+  },
   emptyContainer: { flex: 1 },
   emptyState: {
     flex: 1, alignItems: 'center', justifyContent: 'center',

@@ -187,7 +187,6 @@ const styles = StyleSheet.create({
   pill: {
     flexDirection:     'row',
     alignItems:        'center',
-    alignSelf:         'center',
     backgroundColor:   colors.surface,
     borderRadius:      radius.full,
     borderWidth:       1,

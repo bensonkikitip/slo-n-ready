@@ -40,6 +40,12 @@ export function TransactionRow({ transaction, accountBadge, category, onPress }:
             </View>
           )}
           {category && <CategoryBadge name={category.name} color={category.color} />}
+          {category && transaction.category_set_manually === 1 && (
+            <Text style={styles.sourceIcon}>✎</Text>
+          )}
+          {category && !transaction.category_set_manually && transaction.applied_rule_id && (
+            <Text style={styles.sourceIcon}>⚙</Text>
+          )}
           {isDropped && (
             <View style={[styles.pill, styles.pillDropped]}>
               <Text style={[styles.pillText, { color: colors.dropped }]}>Dropped</Text>
@@ -134,5 +140,10 @@ const styles = StyleSheet.create({
   amount: {
     fontFamily: font.bold,
     fontSize:   15,
+  },
+  sourceIcon: {
+    fontSize:   11,
+    color:      colors.textTertiary,
+    lineHeight: 14,
   },
 });

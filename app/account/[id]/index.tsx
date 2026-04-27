@@ -16,6 +16,7 @@ import { writeBackup } from '../../../src/db/backup';
 import { buildMonthList, buildYearList, MonthEntry, YearEntry } from '../../../src/domain/month';
 import { SummaryBar } from '../../../src/components/SummaryBar';
 import { MonthPicker, FilterMode } from '../../../src/components/MonthPicker';
+import { CategoryPicker } from '../../../src/components/CategoryPicker';
 import { TransactionRow } from '../../../src/components/TransactionRow';
 import { CategoryPickerSheet } from '../../../src/components/CategoryPickerSheet';
 import { Sloth } from '../../../src/components/Sloth';
@@ -34,6 +35,7 @@ export default function AccountDetailScreen() {
   const [filterMode,            setFilterMode]            = useState<FilterMode>('month');
   const [categories,            setCategories]            = useState<Category[]>([]);
   const [selectedTransactionId, setSelectedTransactionId] = useState<string | null>(null);
+  const [categoryFilters,       setCategoryFilters]       = useState<string[]>([]);
   const [loading,               setLoading]               = useState(true);
 
   const selectedMonthRef = useRef('');
@@ -88,23 +90,38 @@ export default function AccountDetailScreen() {
   async function handleMonthChange(month: string) {
     updateMonth(month);
     updateMode('month');
+    setCategoryFilters([]);
     setTransactions(await getTransactionsForMonth(id, month));
   }
 
   async function handleYearChange(year: string) {
     updateYear(year);
     updateMode('year');
+    setCategoryFilters([]);
     setTransactions(await getTransactionsForYear(id, year));
   }
 
+  const categoriesInPeriod = useMemo(() => {
+    const ids = new Set(
+      transactions.filter(t => t.category_id && t.dropped_at === null).map(t => t.category_id!),
+    );
+    return categories.filter(c => ids.has(c.id));
+  }, [transactions, categories]);
+
+  const filteredTransactions = useMemo(() =>
+    categoryFilters.length > 0
+      ? transactions.filter(t => t.category_id !== null && categoryFilters.includes(t.category_id))
+      : transactions,
+  [transactions, categoryFilters]);
+
   const monthSummary = useMemo(() => {
-    const active = transactions.filter(t => t.dropped_at === null);
+    const active = filteredTransactions.filter(t => t.dropped_at === null);
     return {
       income_cents:  active.filter(t => t.amount_cents > 0).reduce((s, t) => s + t.amount_cents, 0),
       expense_cents: active.filter(t => t.amount_cents < 0).reduce((s, t) => s + t.amount_cents, 0),
       net_cents:     active.reduce((s, t) => s + t.amount_cents, 0),
     };
-  }, [transactions]);
+  }, [filteredTransactions]);
 
   const categoryMap = useMemo(
     () => Object.fromEntries(categories.map(c => [c.id, c])),
@@ -156,6 +173,7 @@ export default function AccountDetailScreen() {
   }
 
   const accent = accountColor[account.type];
+  const showPickers = months.length > 0 || years.length > 0;
 
   return (
     <>
@@ -184,16 +202,25 @@ export default function AccountDetailScreen() {
           </Text>
         </View>
 
-        {(months.length > 0 || years.length > 0) && (
-          <MonthPicker
-            months={months}
-            years={years}
-            filterMode={filterMode}
-            selectedMonth={selectedMonth}
-            selectedYear={selectedYear}
-            onChangeMonth={handleMonthChange}
-            onChangeYear={handleYearChange}
-          />
+        {showPickers && (
+          <View style={styles.pickerRow}>
+            <MonthPicker
+              months={months}
+              years={years}
+              filterMode={filterMode}
+              selectedMonth={selectedMonth}
+              selectedYear={selectedYear}
+              onChangeMonth={handleMonthChange}
+              onChangeYear={handleYearChange}
+            />
+            {categoriesInPeriod.length > 0 && (
+              <CategoryPicker
+                categories={categoriesInPeriod}
+                selected={categoryFilters}
+                onSelect={setCategoryFilters}
+              />
+            )}
+          </View>
         )}
 
         <SummaryBar
@@ -203,7 +230,7 @@ export default function AccountDetailScreen() {
         />
 
         <FlatList
-          data={transactions}
+          data={filteredTransactions}
           keyExtractor={item => item.id}
           renderItem={({ item }) => (
             <TransactionRow
@@ -213,7 +240,7 @@ export default function AccountDetailScreen() {
             />
           )}
           contentContainerStyle={[
-            transactions.length === 0 && styles.emptyContainer,
+            filteredTransactions.length === 0 && styles.emptyContainer,
             { paddingBottom: insets.bottom + 88 },
           ]}
           ListEmptyComponent={
@@ -223,6 +250,8 @@ export default function AccountDetailScreen() {
               <Text style={styles.emptyBody}>
                 {months.length === 0
                   ? "Hand me a CSV and I'll get to work sorting your transactions."
+                  : categoryFilters.length > 0
+                  ? "No transactions match the selected categories."
                   : "I don't see any transactions for this month — try another one or import more."}
               </Text>
             </View>
@@ -267,6 +296,14 @@ const styles = StyleSheet.create({
   rulesBtn:   { fontFamily: font.semiBold, fontSize: 15, color: colors.primary },
   editBtn:    { fontFamily: font.semiBold, fontSize: 15, color: colors.primary },
   deleteBtn:  { fontFamily: font.semiBold, fontSize: 15, color: colors.destructive, marginRight: 4 },
+
+  pickerRow: {
+    flexDirection:   'row',
+    alignItems:      'center',
+    paddingHorizontal: spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.separator,
+  },
 
   emptyContainer: { flex: 1 },
   emptyState: {
