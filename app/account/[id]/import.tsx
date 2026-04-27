@@ -10,7 +10,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 import * as Crypto from 'expo-crypto';
 import {
   getAllAccounts, Account, importTransactions,
-  insertImportBatch, ImportResult, parseColumnConfig,
+  insertImportBatch, updateImportBatchCounts, ImportResult, parseColumnConfig,
 } from '../../../src/db/queries';
 import { writeBackup } from '../../../src/db/backup';
 import { parseCsv, ParsedRow } from '../../../src/parsers';
@@ -74,7 +74,22 @@ export default function ImportScreen() {
     if (!preview) return;
     setLoading(true);
     try {
-      const batchId    = Crypto.randomUUID();
+      const batchId     = Crypto.randomUUID();
+      const importedAt  = Date.now();
+
+      // Insert batch FIRST — transactions reference it via FK constraint
+      await insertImportBatch({
+        id:                     batchId,
+        account_id:             accountId,
+        filename:               preview.filename,
+        imported_at:            importedAt,
+        rows_total:             preview.rows.length,
+        rows_inserted:          0,
+        rows_skipped_duplicate: 0,
+        rows_cleared:           0,
+        rows_dropped:           0,
+      });
+
       const parsedRows = preview.rows.map((r, i) => ({
         id:                   preview.ids[i],
         date:                 r.dateIso,
@@ -85,12 +100,9 @@ export default function ImportScreen() {
       }));
 
       const importResult = await importTransactions(accountId, batchId, parsedRows);
-      await insertImportBatch({
-        id:                     batchId,
-        account_id:             accountId,
-        filename:               preview.filename,
-        imported_at:            Date.now(),
-        rows_total:             importResult.total,
+
+      // Update batch with actual counts now that we know them
+      await updateImportBatchCounts(batchId, {
         rows_inserted:          importResult.inserted,
         rows_skipped_duplicate: importResult.skipped,
         rows_cleared:           importResult.cleared,

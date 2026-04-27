@@ -101,6 +101,19 @@ export async function deleteAccount(id: string): Promise<void> {
 
 // --- Import batches ---
 
+export async function updateImportBatchCounts(
+  id: string,
+  counts: { rows_inserted: number; rows_skipped_duplicate: number; rows_cleared: number; rows_dropped: number },
+): Promise<void> {
+  const db = await getDb();
+  await db.runAsync(
+    `UPDATE import_batches
+       SET rows_inserted = ?, rows_skipped_duplicate = ?, rows_cleared = ?, rows_dropped = ?
+     WHERE id = ?`,
+    counts.rows_inserted, counts.rows_skipped_duplicate, counts.rows_cleared, counts.rows_dropped, id,
+  );
+}
+
 export async function insertImportBatch(batch: ImportBatch): Promise<void> {
   const db = await getDb();
   await db.runAsync(
