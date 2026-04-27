@@ -1,7 +1,7 @@
 import React, { useCallback, useRef, useState } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity,
-  StyleSheet, ActivityIndicator, ImageBackground,
+  StyleSheet, ActivityIndicator, ImageBackground, Alert,
 } from 'react-native';
 import { useRouter, useFocusEffect, Stack } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -15,6 +15,7 @@ import { MonthPicker } from '../src/components/MonthPicker';
 import { Sloth } from '../src/components/Sloth';
 import { colors, font, spacing, radius, accountColor } from '../src/theme';
 import { centsToDollars } from '../src/domain/money';
+import { getBackupInfo, restoreFromData, readBackupFromPath, BACKUP_PATH } from '../src/db/backup';
 
 interface AccountWithSummary extends Account { summary: AccountSummary }
 
@@ -33,7 +34,8 @@ export default function AccountsListScreen() {
   const [loading, setLoading] = useState(true);
 
   // Ref so the useFocusEffect (empty deps) can read the latest selected month
-  const selectedMonthRef = useRef('');
+  const selectedMonthRef    = useRef('');
+  const hasCheckedRestoreRef = useRef(false);
 
   function updateMonth(m: string) {
     selectedMonthRef.current = m;
@@ -78,6 +80,54 @@ export default function AccountsListScreen() {
       } else {
         setAccounts(accts.map(a => ({ ...a, summary: EMPTY_SUMMARY })));
         setAllSummary(null);
+
+        // One-time check: offer to restore if DB is empty but a backup exists
+        if (!hasCheckedRestoreRef.current) {
+          hasCheckedRestoreRef.current = true;
+          const backup = await getBackupInfo();
+          if (backup.exists && backup.account_count > 0 && active) {
+            const accountWord = backup.account_count === 1 ? 'account' : 'accounts';
+            const txnWord     = backup.transaction_count === 1 ? 'transaction' : 'transactions';
+            Alert.alert(
+              'Restore backup?',
+              `Found a backup from ${new Date(backup.exported_at!).toLocaleString()} with ${backup.account_count} ${accountWord} and ${backup.transaction_count} ${txnWord}.\n\nRestore it now?`,
+              [
+                { text: 'Skip', style: 'cancel' },
+                {
+                  text: 'Restore',
+                  onPress: async () => {
+                    const data = await readBackupFromPath(BACKUP_PATH);
+                    if (!data) { Alert.alert('Restore failed', 'Could not read backup file.'); return; }
+                    try {
+                      await restoreFromData(data);
+                      // Reload accounts after restore
+                      const [restored, restoredMonths] = await Promise.all([
+                        getAllAccounts(),
+                        getDistinctMonths(),
+                      ]);
+                      const restoredList  = buildMonthList(restoredMonths);
+                      const restoredMonth = restoredList.find(m => m.count > 0)?.key ?? '';
+                      setMonths(restoredList);
+                      updateMonth(restoredMonth);
+                      if (restoredMonth && restored.length > 0) {
+                        const [allSum, ...acctSums] = await Promise.all([
+                          getAllAccountsSummaryForMonth(restoredMonth),
+                          ...restored.map(a => getAccountSummaryForMonth(a.id, restoredMonth)),
+                        ]);
+                        setAllSummary(allSum);
+                        setAccounts(restored.map((a, i) => ({ ...a, summary: acctSums[i] })));
+                      } else {
+                        setAccounts(restored.map(a => ({ ...a, summary: EMPTY_SUMMARY })));
+                      }
+                    } catch (e: any) {
+                      Alert.alert('Restore failed', e.message ?? 'Unknown error');
+                    }
+                  },
+                },
+              ],
+            );
+          }
+        }
       }
 
       if (active) setLoading(false);
@@ -107,7 +157,16 @@ export default function AccountsListScreen() {
 
   return (
     <>
-      <Stack.Screen options={{ title: 'Slo N Ready' }} />
+      <Stack.Screen
+        options={{
+          title: 'Slo N Ready',
+          headerRight: () => (
+            <TouchableOpacity onPress={() => router.push('/backup')} hitSlop={12}>
+              <Text style={styles.backupBtn}>Backup</Text>
+            </TouchableOpacity>
+          ),
+        }}
+      />
       <ImageBackground
         source={require('../assets/backdrop.png')}
         style={styles.container}
@@ -297,5 +356,6 @@ const styles = StyleSheet.create({
     shadowColor: '#1A4030', shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3, shadowRadius: 8, elevation: 6,
   },
-  fabText: { fontSize: 30, color: colors.textOnColor, lineHeight: 34, fontFamily: font.regular },
+  fabText:   { fontSize: 30, color: colors.textOnColor, lineHeight: 34, fontFamily: font.regular },
+  backupBtn: { fontFamily: font.semiBold, fontSize: 15, color: colors.primary },
 });

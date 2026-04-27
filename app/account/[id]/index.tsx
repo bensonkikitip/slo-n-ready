@@ -10,6 +10,7 @@ import {
   getAllAccounts, deleteAccount,
   getDistinctMonths, getTransactionsForMonth,
 } from '../../../src/db/queries';
+import { writeBackup } from '../../../src/db/backup';
 import { buildMonthList, MonthEntry } from '../../../src/domain/month';
 import { SummaryBar } from '../../../src/components/SummaryBar';
 import { MonthPicker } from '../../../src/components/MonthPicker';
@@ -85,7 +86,7 @@ export default function AccountDetailScreen() {
         { text: 'Cancel', style: 'cancel' },
         {
           text: 'Delete', style: 'destructive',
-          onPress: async () => { await deleteAccount(id); router.back(); },
+          onPress: async () => { await deleteAccount(id); void writeBackup(); router.back(); },
         },
       ],
     );

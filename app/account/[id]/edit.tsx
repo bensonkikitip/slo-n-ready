@@ -8,6 +8,7 @@ import {
   Account, AccountType, CsvFormat,
   getAllAccounts, getTransactions, updateAccount, parseColumnConfig,
 } from '../../../src/db/queries';
+import { writeBackup } from '../../../src/db/backup';
 import { ColumnConfig, DEFAULT_CONFIGS, DateFormat, AmountStyle } from '../../../src/parsers/column-config';
 import { colors, font, spacing, radius, accountColor } from '../../../src/theme';
 
@@ -107,6 +108,7 @@ export default function EditAccountScreen() {
         csv_format:    csvFormat,
         column_config: JSON.stringify(config),
       });
+      void writeBackup();
       router.back();
     } catch {
       Alert.alert('Error', 'Could not save changes. Please try again.');

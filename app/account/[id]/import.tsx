@@ -12,6 +12,7 @@ import {
   getAllAccounts, Account, importTransactions,
   insertImportBatch, ImportResult, parseColumnConfig,
 } from '../../../src/db/queries';
+import { writeBackup } from '../../../src/db/backup';
 import { parseCsv, ParsedRow } from '../../../src/parsers';
 import { assignTransactionIds } from '../../../src/domain/transaction-id';
 import { centsToDollars } from '../../../src/domain/money';
@@ -96,6 +97,7 @@ export default function ImportScreen() {
         rows_dropped:           importResult.dropped,
       });
 
+      void writeBackup();
       setResult(importResult);
       setPhase('done');
     } catch (e: any) {
