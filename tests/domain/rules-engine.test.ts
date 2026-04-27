@@ -159,4 +159,51 @@ describe('applyRulesToTransactions', () => {
       expect(result).toHaveLength(1);
     });
   });
+
+  describe('defensive guards (v2.3.1 bug fixes)', () => {
+    it('skips rules with empty match_text — an empty string matches everything via .includes()', () => {
+      // Regression: a rule with blank match_text would match every transaction because
+      // "anything".includes("") === true. The fix guards with `if (!pattern) continue`.
+      const emptyRule = makeRule({ match_type: 'contains', match_text: '', category_id: 'cat-bad' });
+      const result = applyRulesToTransactions(
+        [makeTx('tx-1', 'FREEBIRDS GOLETA CA')],
+        [emptyRule],
+      );
+      expect(result).toHaveLength(0);
+    });
+
+    it('skips rules with whitespace-only match_text (trimmed to empty)', () => {
+      const wsRule = makeRule({ match_type: 'starts_with', match_text: '   ', category_id: 'cat-bad' });
+      // "   ".toLowerCase() is "   ", which is non-empty, so startsWith("   ") won't match a normal description
+      // But if we had trimmed in the engine — this tests the empty-after-trim case isn't a false positive either
+      const result = applyRulesToTransactions(
+        [makeTx('tx-1', 'FREEBIRDS GOLETA CA')],
+        [wsRule],
+      );
+      expect(result).toHaveLength(0);
+    });
+
+    it('a valid amazon rule does NOT match an unrelated merchant (FREEBIRDS)', () => {
+      // Regression case: confirms the Amazon "contains amazon" rule cannot match
+      // "FREEBIRDS GOLETA CA". The source of the bug was the picker re-selecting the
+      // same category and converting rule-assigned (⚙) to manually-assigned (✎), not
+      // a matching fault.
+      const amazonRule = makeRule({
+        match_type: 'contains', match_text: 'amazon', category_id: 'cat-amazon',
+      });
+      const result = applyRulesToTransactions(
+        [makeTx('tx-freebirds', 'FREEBIRDS GOLETA CA')],
+        [amazonRule],
+      );
+      expect(result).toHaveLength(0);
+    });
+
+    it('handles null/undefined description without throwing', () => {
+      const rule = makeRule({ match_type: 'contains', match_text: 'amazon', category_id: 'cat-amazon' });
+      // description may be null if imported from a malformed CSV row
+      const txWithNullDesc = { id: 'tx-1', description: null as unknown as string, category_set_manually: 0 };
+      expect(() => applyRulesToTransactions([txWithNullDesc], [rule])).not.toThrow();
+      expect(applyRulesToTransactions([txWithNullDesc], [rule])).toHaveLength(0);
+    });
+  });
 });

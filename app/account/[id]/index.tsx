@@ -144,6 +144,8 @@ export default function AccountDetailScreen() {
 
   async function handleCategorySelect(categoryId: string | null) {
     if (!selectedTransactionId) return;
+    const tx = transactions.find(t => t.id === selectedTransactionId);
+    if (tx?.category_id === categoryId) { setSelectedTransactionId(null); return; }
     await setTransactionCategory(selectedTransactionId, categoryId, true, null);
     setTransactions(prev => prev.map(t =>
       t.id === selectedTransactionId

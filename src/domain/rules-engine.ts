@@ -15,9 +15,10 @@ export function applyRulesToTransactions(
   for (const tx of transactions) {
     if (tx.category_set_manually) continue;
 
-    const lower = tx.description.toLowerCase();
+    const lower = (tx.description ?? '').toLowerCase();
     for (const rule of rules) {
       const pattern = rule.match_text.toLowerCase();
+      if (!pattern) continue;
       let matched = false;
       switch (rule.match_type) {
         case 'contains':    matched = lower.includes(pattern);    break;
