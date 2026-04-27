@@ -120,12 +120,12 @@ export default function AllAccountsScreen() {
             <View style={styles.emptyState}>
               <Sloth sloth="meditating" size={130} />
               <Text style={styles.emptyTitle}>
-                {!hasAnyData ? 'All quiet here' : 'No transactions'}
+                {!hasAnyData ? "I'm ready when you are!" : 'Nothing here this month'}
               </Text>
               <Text style={styles.emptyBody}>
                 {!hasAnyData
-                  ? 'Import a CSV from one of your accounts to see everything in one place.'
-                  : 'No transactions for this month.'}
+                  ? "Import a CSV from one of your accounts and I'll show everything together here."
+                  : "I don't see any transactions for this month — try a different one."}
               </Text>
             </View>
           }

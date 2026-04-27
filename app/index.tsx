@@ -17,6 +17,7 @@ import { colors, font, spacing, radius, accountColor } from '../src/theme';
 import { centsToDollars } from '../src/domain/money';
 import { getBackupInfo, restoreFromData, readBackupFromPath, BACKUP_PATH } from '../src/db/backup';
 
+
 interface AccountWithSummary extends Account { summary: AccountSummary }
 
 const EMPTY_SUMMARY: AccountSummary = {
@@ -31,11 +32,11 @@ export default function AccountsListScreen() {
   const [allSummary, setAllSummary] = useState<AccountSummary | null>(null);
   const [months,     setMonths]     = useState<MonthEntry[]>([]);
   const [selectedMonth, setSelectedMonth] = useState('');
-  const [loading, setLoading] = useState(true);
+  const [loading,   setLoading]   = useState(true);
+  const [hasBackup, setHasBackup] = useState(false);
 
   // Ref so the useFocusEffect (empty deps) can read the latest selected month
-  const selectedMonthRef    = useRef('');
-  const hasCheckedRestoreRef = useRef(false);
+  const selectedMonthRef = useRef('');
 
   function updateMonth(m: string) {
     selectedMonthRef.current = m;
@@ -80,60 +81,59 @@ export default function AccountsListScreen() {
       } else {
         setAccounts(accts.map(a => ({ ...a, summary: EMPTY_SUMMARY })));
         setAllSummary(null);
-
-        // One-time check: offer to restore if DB is empty but a backup exists
-        if (!hasCheckedRestoreRef.current) {
-          hasCheckedRestoreRef.current = true;
-          const backup = await getBackupInfo();
-          if (backup.exists && backup.account_count > 0 && active) {
-            const accountWord = backup.account_count === 1 ? 'account' : 'accounts';
-            const txnWord     = backup.transaction_count === 1 ? 'transaction' : 'transactions';
-            Alert.alert(
-              'Restore backup?',
-              `Found a backup from ${new Date(backup.exported_at!).toLocaleString()} with ${backup.account_count} ${accountWord} and ${backup.transaction_count} ${txnWord}.\n\nRestore it now?`,
-              [
-                { text: 'Skip', style: 'cancel' },
-                {
-                  text: 'Restore',
-                  onPress: async () => {
-                    const data = await readBackupFromPath(BACKUP_PATH);
-                    if (!data) { Alert.alert('Restore failed', 'Could not read backup file.'); return; }
-                    try {
-                      await restoreFromData(data);
-                      // Reload accounts after restore
-                      const [restored, restoredMonths] = await Promise.all([
-                        getAllAccounts(),
-                        getDistinctMonths(),
-                      ]);
-                      const restoredList  = buildMonthList(restoredMonths);
-                      const restoredMonth = restoredList.find(m => m.count > 0)?.key ?? '';
-                      setMonths(restoredList);
-                      updateMonth(restoredMonth);
-                      if (restoredMonth && restored.length > 0) {
-                        const [allSum, ...acctSums] = await Promise.all([
-                          getAllAccountsSummaryForMonth(restoredMonth),
-                          ...restored.map(a => getAccountSummaryForMonth(a.id, restoredMonth)),
-                        ]);
-                        setAllSummary(allSum);
-                        setAccounts(restored.map((a, i) => ({ ...a, summary: acctSums[i] })));
-                      } else {
-                        setAccounts(restored.map(a => ({ ...a, summary: EMPTY_SUMMARY })));
-                      }
-                    } catch (e: any) {
-                      Alert.alert('Restore failed', e.message ?? 'Unknown error');
-                    }
-                  },
-                },
-              ],
-            );
-          }
-        }
+        const backup = await getBackupInfo();
+        if (active) setHasBackup(backup.exists && backup.account_count > 0);
       }
 
       if (active) setLoading(false);
     })();
     return () => { active = false; };
   }, []));
+
+  async function handleRestore() {
+    const data = await readBackupFromPath(BACKUP_PATH);
+    if (!data) {
+      Alert.alert("Hmm, I can't find it", "I couldn't locate a backup file to restore from.");
+      return;
+    }
+    const accountWord = data.accounts.length === 1 ? 'account' : 'accounts';
+    const txnWord     = data.transactions.length === 1 ? 'transaction' : 'transactions';
+    Alert.alert(
+      'Ready to restore?',
+      `I found a backup from ${new Date(data.exported_at).toLocaleString()} with ${data.accounts.length} ${accountWord} and ${data.transactions.length} ${txnWord}. Want me to load it up?`,
+      [
+        { text: 'Not yet', style: 'cancel' },
+        {
+          text: 'Restore',
+          onPress: async () => {
+            try {
+              await restoreFromData(data);
+              const [restored, restoredMonths] = await Promise.all([
+                getAllAccounts(), getDistinctMonths(),
+              ]);
+              const restoredList  = buildMonthList(restoredMonths);
+              const restoredMonth = restoredList.find(m => m.count > 0)?.key ?? '';
+              setMonths(restoredList);
+              updateMonth(restoredMonth);
+              setHasBackup(false);
+              if (restoredMonth && restored.length > 0) {
+                const [allSum, ...acctSums] = await Promise.all([
+                  getAllAccountsSummaryForMonth(restoredMonth),
+                  ...restored.map(a => getAccountSummaryForMonth(a.id, restoredMonth)),
+                ]);
+                setAllSummary(allSum);
+                setAccounts(restored.map((a, i) => ({ ...a, summary: acctSums[i] })));
+              } else {
+                setAccounts(restored.map(a => ({ ...a, summary: EMPTY_SUMMARY })));
+              }
+            } catch (e: any) {
+              Alert.alert('Restore failed', e.message ?? 'Something went wrong.');
+            }
+          },
+        },
+      ],
+    );
+  }
 
   async function handleMonthChange(month: string) {
     updateMonth(month);
@@ -250,9 +250,9 @@ export default function AccountsListScreen() {
           ListEmptyComponent={
             <View style={styles.emptyState}>
               <Sloth sloth="laptop" size={140} />
-              <Text style={styles.emptyTitle}>Welcome to Slo N Ready</Text>
+              <Text style={styles.emptyTitle}>Hi, I'm Rachey!</Text>
               <Text style={styles.emptyBody}>
-                No rush — add your first account and{'\n'}we'll start tracking at our own pace.
+                I'll help you track your spending — add your first account and we'll go at our own pace.
               </Text>
               <TouchableOpacity
                 style={styles.emptyButton}
@@ -260,6 +260,14 @@ export default function AccountsListScreen() {
               >
                 <Text style={styles.emptyButtonText}>Add First Account</Text>
               </TouchableOpacity>
+              {hasBackup && (
+                <TouchableOpacity
+                  style={styles.restoreButton}
+                  onPress={handleRestore}
+                >
+                  <Text style={styles.restoreButtonText}>Restore from Backup</Text>
+                </TouchableOpacity>
+              )}
             </View>
           }
         />
@@ -347,6 +355,8 @@ const styles = StyleSheet.create({
     paddingVertical: 14, paddingHorizontal: spacing.xl, marginTop: spacing.sm,
   },
   emptyButtonText: { fontFamily: font.bold, fontSize: 16, color: colors.textOnColor },
+  restoreButton:     { paddingVertical: 14, alignItems: 'center' },
+  restoreButtonText: { fontFamily: font.semiBold, fontSize: 15, color: colors.textSecondary },
 
   fab: {
     position: 'absolute', right: spacing.lg,

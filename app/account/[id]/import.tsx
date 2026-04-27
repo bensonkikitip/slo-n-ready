@@ -128,7 +128,7 @@ export default function ImportScreen() {
               </Text>
             )}
             <Text style={styles.pickBody}>
-              Select a CSV file exported from your bank. We'll show you a preview before saving anything.
+              Hand me a CSV from your bank and I'll show you a preview before saving anything.
             </Text>
             {loading
               ? <ActivityIndicator color={accent} style={{ marginTop: spacing.lg }} />
@@ -176,7 +176,7 @@ export default function ImportScreen() {
             </View>
 
             <Text style={styles.dedupeNote}>
-              Already-imported transactions will be skipped automatically.
+              Don't worry about duplicates — I'll skip anything I've already seen.
             </Text>
 
             {loading
@@ -207,7 +207,7 @@ export default function ImportScreen() {
         {phase === 'done' && result && (
           <View style={styles.doneContainer}>
             <Sloth sloth="thumbsUp" size={140} />
-            <Text style={styles.doneTitle}>All done!</Text>
+            <Text style={styles.doneTitle}>All done — nice work!</Text>
 
             <View style={styles.statsCard}>
               <StatRow label="Added"                   value={String(result.inserted)} />

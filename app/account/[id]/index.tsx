@@ -161,11 +161,11 @@ export default function AccountDetailScreen() {
           ListEmptyComponent={
             <View style={styles.emptyState}>
               <Sloth sloth="receipt" size={120} />
-              <Text style={styles.emptyTitle}>No transactions</Text>
+              <Text style={styles.emptyTitle}>Nothing here yet!</Text>
               <Text style={styles.emptyBody}>
                 {months.length === 0
-                  ? 'Import a CSV to see your transactions here.'
-                  : 'No transactions for this month.'}
+                  ? "Hand me a CSV and I'll get to work sorting your transactions."
+                  : "I don't see any transactions for this month — try another one or import more."}
               </Text>
             </View>
           }

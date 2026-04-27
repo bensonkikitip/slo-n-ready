@@ -127,7 +127,7 @@ export default function AddAccountScreen() {
         ))}
       </View>
       <Text style={styles.hint}>
-        This tells Slo N Ready how to parse your bank's CSV export.
+        This tells me how to read your bank's CSV — pick the one that matches your bank.
       </Text>
 
       <TouchableOpacity

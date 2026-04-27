@@ -68,10 +68,10 @@ export default function BackupScreen() {
       const txnWord     = data.transactions.length === 1 ? 'transaction' : 'transactions';
 
       Alert.alert(
-        'Restore backup?',
-        `This will replace all current data with the backup:\n\n${data.accounts.length} ${accountWord} · ${data.transactions.length} ${txnWord}\nSaved ${new Date(data.exported_at).toLocaleString()}\n\nThis cannot be undone.`,
+        'Ready to restore?',
+        `I found a backup with ${data.accounts.length} ${accountWord} and ${data.transactions.length} ${txnWord}, saved ${new Date(data.exported_at).toLocaleString()}.\n\nThis will replace all current data.`,
         [
-          { text: 'Cancel', style: 'cancel' },
+          { text: 'Not yet', style: 'cancel' },
           {
             text: 'Restore',
             style: 'destructive',
@@ -81,7 +81,7 @@ export default function BackupScreen() {
                 await writeBackup();
                 const refreshed = await getBackupInfo();
                 setInfo(refreshed);
-                Alert.alert('Restored', 'Your data has been restored successfully.');
+                Alert.alert("All done!", "I've restored your data successfully.");
               } catch (e: any) {
                 Alert.alert('Restore failed', e.message ?? 'Unknown error');
               } finally {
@@ -135,7 +135,7 @@ export default function BackupScreen() {
             <View style={styles.statusRow}>
               <Text style={styles.statusLabel}>No backup yet</Text>
               <Text style={styles.statusNote}>
-                One will be created automatically after your next import.
+                I'll save one automatically after your next import or account change.
               </Text>
             </View>
           )}
@@ -155,7 +155,7 @@ export default function BackupScreen() {
           }
         </TouchableOpacity>
         <Text style={styles.hint}>
-          Saves a fresh snapshot and opens the share sheet — AirDrop it, save to Files, email it, whatever you like.
+          I'll save a fresh snapshot and hand it to the share sheet — AirDrop it, save to Files, email it, whatever you like.
         </Text>
 
         {/* Import */}
@@ -169,13 +169,13 @@ export default function BackupScreen() {
           <Text style={[styles.buttonText, { color: colors.primary }]}>Restore from File…</Text>
         </TouchableOpacity>
         <Text style={styles.hint}>
-          Pick a previously exported backup file. All current data will be replaced.
+          Pick a backup file you exported earlier and I'll load it right up. This replaces all current data.
         </Text>
 
         {/* Info */}
         <View style={styles.infoBox}>
           <Text style={styles.infoText}>
-            Your data is backed up automatically after every import or account change. iOS syncs this file to iCloud, so it's there when you restore or switch devices.
+            I back myself up automatically after every import or account change. iOS syncs the file to iCloud, so your data is safe when you restore or switch devices.
           </Text>
         </View>
       </ScrollView>
