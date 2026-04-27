@@ -4,7 +4,7 @@ import {
   Modal, TextInput, StyleSheet, SafeAreaView,
   ActivityIndicator, Alert, ScrollView,
 } from 'react-native';
-import { useLocalSearchParams, useFocusEffect, Stack } from 'expo-router';
+import { useLocalSearchParams, useFocusEffect, Stack, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   Rule, Category, MatchType,
@@ -36,6 +36,7 @@ export default function AccountRulesScreen() {
     prefillCategory?: string;
   }>();
   const insets  = useSafeAreaInsets();
+  const router  = useRouter();
   const [rules,         setRules]         = useState<RuleWithCategory[]>([]);
   const [categories,    setCategories]    = useState<Category[]>([]);
   const [loading,       setLoading]       = useState(true);
@@ -50,6 +51,8 @@ export default function AccountRulesScreen() {
 
   // Tracks whether we've already consumed the prefill params (so it only fires once)
   const prefillApplied = useRef(false);
+  // True when the sheet was opened via the "Create Rule?" prefill flow
+  const fromPrefill = useRef(false);
 
   // Inline category picker (inside the sheet ScrollView — no second modal)
   const [catView,     setCatView]     = useState<CatView>('collapsed');
@@ -82,6 +85,7 @@ export default function AccountRulesScreen() {
   useEffect(() => {
     if (!prefillText || prefillApplied.current || loading) return;
     prefillApplied.current = true;
+    fromPrefill.current    = true;
     setEditingRuleId(null);
     setMatchType('contains');
     setMatchText(prefillText);
@@ -115,6 +119,10 @@ export default function AccountRulesScreen() {
   function closeSheet() {
     setSheetOpen(false);
     setCatView('collapsed');
+    if (fromPrefill.current) {
+      fromPrefill.current = false;
+      router.back();
+    }
   }
 
   function selectCategory(id: string) {
@@ -174,17 +182,26 @@ export default function AccountRulesScreen() {
           priority: maxPriority + 1,
         });
         await reloadRules();
-        closeSheet();
+        const navigateBack = fromPrefill.current;
+        // Close sheet without triggering back-navigation yet — alert comes first
+        fromPrefill.current = false;
+        setSheetOpen(false);
+        setCatView('collapsed');
         Alert.alert(
           'Rule saved!',
           'Want to apply this rule to your existing uncategorized transactions now?',
           [
-            { text: 'Not Now', style: 'cancel' },
+            {
+              text: 'Not Now',
+              style: 'cancel',
+              onPress: () => { if (navigateBack) router.back(); },
+            },
             {
               text: 'Apply Now',
               onPress: async () => {
                 const count = await autoApplyRulesForAccount(id);
                 Alert.alert('Done!', `Categorized ${count} transaction${count === 1 ? '' : 's'}.`);
+                if (navigateBack) router.back();
               },
             },
           ],
