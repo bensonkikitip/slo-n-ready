@@ -259,6 +259,14 @@ export async function importTransactions(
 // Pending transactions ARE included — they represent real expected charges.
 const ACTIVE_FILTER = `dropped_at IS NULL`;
 
+function catClause(ids: string[]): { sql: string; params: string[] } {
+  if (ids.length === 0) return { sql: '', params: [] };
+  return {
+    sql: ` AND category_id IN (${ids.map(() => '?').join(',')})`,
+    params: ids,
+  };
+}
+
 export async function getTransactions(accountId: string): Promise<Transaction[]> {
   const db = await getDb();
   return db.getAllAsync<Transaction>(
@@ -390,8 +398,9 @@ export async function getAllTransactionsForMonth(month: string): Promise<Transac
   );
 }
 
-export async function getAccountSummaryForMonth(accountId: string, month: string): Promise<AccountSummary> {
+export async function getAccountSummaryForMonth(accountId: string, month: string, categoryIds: string[] = []): Promise<AccountSummary> {
   const db = await getDb();
+  const cat = catClause(categoryIds);
   const row = await db.getFirstAsync<{
     income_cents: number; expense_cents: number;
     net_cents: number; transaction_count: number;
@@ -402,8 +411,8 @@ export async function getAccountSummaryForMonth(accountId: string, month: string
        COALESCE(SUM(amount_cents), 0) AS net_cents,
        COUNT(*) AS transaction_count
      FROM transactions
-     WHERE account_id = ? AND ${ACTIVE_FILTER} AND substr(date, 1, 7) = ?`,
-    accountId, month,
+     WHERE account_id = ? AND ${ACTIVE_FILTER} AND substr(date, 1, 7) = ?${cat.sql}`,
+    accountId, month, ...cat.params,
   );
   const lastBatch = await db.getFirstAsync<{ imported_at: number }>(
     `SELECT imported_at FROM import_batches WHERE account_id = ? ORDER BY imported_at DESC LIMIT 1`,
@@ -418,8 +427,9 @@ export async function getAccountSummaryForMonth(accountId: string, month: string
   };
 }
 
-export async function getAllAccountsSummaryForMonth(month: string): Promise<AccountSummary> {
+export async function getAllAccountsSummaryForMonth(month: string, categoryIds: string[] = []): Promise<AccountSummary> {
   const db = await getDb();
+  const cat = catClause(categoryIds);
   const row = await db.getFirstAsync<{
     income_cents: number; expense_cents: number;
     net_cents: number; transaction_count: number;
@@ -430,8 +440,8 @@ export async function getAllAccountsSummaryForMonth(month: string): Promise<Acco
        COALESCE(SUM(amount_cents), 0) AS net_cents,
        COUNT(*) AS transaction_count
      FROM transactions
-     WHERE ${ACTIVE_FILTER} AND substr(date, 1, 7) = ?`,
-    month,
+     WHERE ${ACTIVE_FILTER} AND substr(date, 1, 7) = ?${cat.sql}`,
+    month, ...cat.params,
   );
   const lastBatch = await db.getFirstAsync<{ imported_at: number }>(
     `SELECT imported_at FROM import_batches ORDER BY imported_at DESC LIMIT 1`,
@@ -467,8 +477,9 @@ export async function getAllTransactionsForYear(year: string): Promise<Transacti
   );
 }
 
-export async function getAccountSummaryForYear(accountId: string, year: string): Promise<AccountSummary> {
+export async function getAccountSummaryForYear(accountId: string, year: string, categoryIds: string[] = []): Promise<AccountSummary> {
   const db = await getDb();
+  const cat = catClause(categoryIds);
   const row = await db.getFirstAsync<{
     income_cents: number; expense_cents: number;
     net_cents: number; transaction_count: number;
@@ -479,8 +490,8 @@ export async function getAccountSummaryForYear(accountId: string, year: string):
        COALESCE(SUM(amount_cents), 0) AS net_cents,
        COUNT(*) AS transaction_count
      FROM transactions
-     WHERE account_id = ? AND ${ACTIVE_FILTER} AND substr(date, 1, 4) = ?`,
-    accountId, year,
+     WHERE account_id = ? AND ${ACTIVE_FILTER} AND substr(date, 1, 4) = ?${cat.sql}`,
+    accountId, year, ...cat.params,
   );
   const lastBatch = await db.getFirstAsync<{ imported_at: number }>(
     `SELECT imported_at FROM import_batches WHERE account_id = ? ORDER BY imported_at DESC LIMIT 1`,
@@ -495,8 +506,9 @@ export async function getAccountSummaryForYear(accountId: string, year: string):
   };
 }
 
-export async function getAllAccountsSummaryForYear(year: string): Promise<AccountSummary> {
+export async function getAllAccountsSummaryForYear(year: string, categoryIds: string[] = []): Promise<AccountSummary> {
   const db = await getDb();
+  const cat = catClause(categoryIds);
   const row = await db.getFirstAsync<{
     income_cents: number; expense_cents: number;
     net_cents: number; transaction_count: number;
@@ -507,8 +519,8 @@ export async function getAllAccountsSummaryForYear(year: string): Promise<Accoun
        COALESCE(SUM(amount_cents), 0) AS net_cents,
        COUNT(*) AS transaction_count
      FROM transactions
-     WHERE ${ACTIVE_FILTER} AND substr(date, 1, 4) = ?`,
-    year,
+     WHERE ${ACTIVE_FILTER} AND substr(date, 1, 4) = ?${cat.sql}`,
+    year, ...cat.params,
   );
   const lastBatch = await db.getFirstAsync<{ imported_at: number }>(
     `SELECT imported_at FROM import_batches ORDER BY imported_at DESC LIMIT 1`,
@@ -520,6 +532,26 @@ export async function getAllAccountsSummaryForYear(year: string): Promise<Accoun
     transaction_count: row?.transaction_count ?? 0,
     last_imported_at:  lastBatch?.imported_at ?? null,
   };
+}
+
+export async function getDistinctCategoryIdsForMonth(month: string): Promise<string[]> {
+  const db = await getDb();
+  const rows = await db.getAllAsync<{ category_id: string }>(
+    `SELECT DISTINCT category_id FROM transactions
+     WHERE ${ACTIVE_FILTER} AND substr(date, 1, 7) = ? AND category_id IS NOT NULL`,
+    month,
+  );
+  return rows.map(r => r.category_id);
+}
+
+export async function getDistinctCategoryIdsForYear(year: string): Promise<string[]> {
+  const db = await getDb();
+  const rows = await db.getAllAsync<{ category_id: string }>(
+    `SELECT DISTINCT category_id FROM transactions
+     WHERE ${ACTIVE_FILTER} AND substr(date, 1, 4) = ? AND category_id IS NOT NULL`,
+    year,
+  );
+  return rows.map(r => r.category_id);
 }
 
 // --- Categories ---

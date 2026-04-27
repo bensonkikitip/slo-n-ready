@@ -6,14 +6,16 @@ import {
 import { useRouter, useFocusEffect, Stack } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
-  Account, AccountSummary, getAllAccounts,
+  Account, AccountSummary, Category, getAllAccounts, getAllCategories,
   getDistinctMonths, getAccountSummaryForMonth, getAllAccountsSummaryForMonth,
   getDistinctYears, getAccountSummaryForYear, getAllAccountsSummaryForYear,
+  getDistinctCategoryIdsForMonth, getDistinctCategoryIdsForYear,
 } from '../src/db/queries';
 import { buildMonthList, buildYearList, MonthEntry, YearEntry } from '../src/domain/month';
 import { FilterMode } from '../src/components/MonthPicker';
 import { SummaryBar } from '../src/components/SummaryBar';
 import { MonthPicker } from '../src/components/MonthPicker';
+import { CategoryPicker } from '../src/components/CategoryPicker';
 import { Sloth } from '../src/components/Sloth';
 import { colors, font, spacing, radius, accountColor } from '../src/theme';
 import { centsToDollars } from '../src/domain/money';
@@ -30,50 +32,70 @@ const EMPTY_SUMMARY: AccountSummary = {
 export default function AccountsListScreen() {
   const router   = useRouter();
   const insets   = useSafeAreaInsets();
-  const [accounts,      setAccounts]      = useState<AccountWithSummary[]>([]);
-  const [allSummary,    setAllSummary]    = useState<AccountSummary | null>(null);
-  const [months,        setMonths]        = useState<MonthEntry[]>([]);
-  const [years,         setYears]         = useState<YearEntry[]>([]);
-  const [selectedMonth, setSelectedMonth] = useState('');
-  const [selectedYear,  setSelectedYear]  = useState('');
-  const [filterMode,    setFilterMode]    = useState<FilterMode>('month');
-  const [loading,       setLoading]       = useState(true);
-  const [hasBackup,     setHasBackup]     = useState(false);
+  const [accounts,         setAccounts]         = useState<AccountWithSummary[]>([]);
+  const [allSummary,       setAllSummary]       = useState<AccountSummary | null>(null);
+  const [months,           setMonths]           = useState<MonthEntry[]>([]);
+  const [years,            setYears]            = useState<YearEntry[]>([]);
+  const [selectedMonth,    setSelectedMonth]    = useState('');
+  const [selectedYear,     setSelectedYear]     = useState('');
+  const [filterMode,       setFilterMode]       = useState<FilterMode>('month');
+  const [loading,          setLoading]          = useState(true);
+  const [hasBackup,        setHasBackup]        = useState(false);
+  const [categories,       setCategories]       = useState<Category[]>([]);
+  const [categoryFilters,  setCategoryFilters]  = useState<string[]>([]);
+  const [categoriesInPeriod, setCategoriesInPeriod] = useState<Category[]>([]);
 
   // Refs so useFocusEffect (empty deps) can always read latest values
-  const selectedMonthRef = useRef('');
-  const selectedYearRef  = useRef('');
-  const filterModeRef    = useRef<FilterMode>('month');
+  const selectedMonthRef   = useRef('');
+  const selectedYearRef    = useRef('');
+  const filterModeRef      = useRef<FilterMode>('month');
+  const categoryFiltersRef = useRef<string[]>([]);
 
   function updateMonth(m: string) { selectedMonthRef.current = m; setSelectedMonth(m); }
   function updateYear(y: string)  { selectedYearRef.current  = y; setSelectedYear(y);  }
   function updateMode(m: FilterMode) { filterModeRef.current = m; setFilterMode(m);    }
+  function updateCategoryFilters(ids: string[]) {
+    categoryFiltersRef.current = ids;
+    setCategoryFilters(ids);
+  }
 
-  async function loadSummaries(accts: Account[], mode: FilterMode, period: string) {
+  async function loadSummaries(accts: Account[], mode: FilterMode, period: string, catIds: string[] = []) {
     if (!period || accts.length === 0) return;
     const [allSum, ...acctSums] = await Promise.all(
       mode === 'year'
-        ? [getAllAccountsSummaryForYear(period),  ...accts.map(a => getAccountSummaryForYear(a.id,  period))]
-        : [getAllAccountsSummaryForMonth(period), ...accts.map(a => getAccountSummaryForMonth(a.id, period))],
+        ? [getAllAccountsSummaryForYear(period, catIds),  ...accts.map(a => getAccountSummaryForYear(a.id,  period, catIds))]
+        : [getAllAccountsSummaryForMonth(period, catIds), ...accts.map(a => getAccountSummaryForMonth(a.id, period, catIds))],
     );
     setAllSummary(allSum);
     setAccounts(accts.map((a, i) => ({ ...a, summary: acctSums[i] })));
   }
 
+  async function refreshCategoriesInPeriod(mode: FilterMode, period: string, allCats: Category[]) {
+    if (!period) { setCategoriesInPeriod([]); return; }
+    const ids = mode === 'year'
+      ? await getDistinctCategoryIdsForYear(period)
+      : await getDistinctCategoryIdsForMonth(period);
+    const idSet = new Set(ids);
+    setCategoriesInPeriod(allCats.filter(c => idSet.has(c.id)));
+  }
+
   useFocusEffect(useCallback(() => {
     let active = true;
     (async () => {
-      const [accts, dbMonths, dbYears] = await Promise.all([
-        getAllAccounts(), getDistinctMonths(), getDistinctYears(),
+      const [accts, dbMonths, dbYears, allCats] = await Promise.all([
+        getAllAccounts(), getDistinctMonths(), getDistinctYears(), getAllCategories(),
       ]);
       if (!active) return;
+
+      setCategories(allCats);
 
       const monthList = buildMonthList(dbMonths);
       const yearList  = buildYearList(dbYears);
 
-      const curMonth = selectedMonthRef.current;
-      const curYear  = selectedYearRef.current;
-      const curMode  = filterModeRef.current;
+      const curMonth  = selectedMonthRef.current;
+      const curYear   = selectedYearRef.current;
+      const curMode   = filterModeRef.current;
+      const curCatIds = categoryFiltersRef.current;
 
       const month = (curMonth && monthList.some(m => m.key === curMonth))
         ? curMonth
@@ -91,15 +113,17 @@ export default function AccountsListScreen() {
       if (period && accts.length > 0) {
         const [allSum, ...acctSums] = await Promise.all(
           curMode === 'year'
-            ? [getAllAccountsSummaryForYear(period),  ...accts.map(a => getAccountSummaryForYear(a.id,  period))]
-            : [getAllAccountsSummaryForMonth(period), ...accts.map(a => getAccountSummaryForMonth(a.id, period))],
+            ? [getAllAccountsSummaryForYear(period, curCatIds),  ...accts.map(a => getAccountSummaryForYear(a.id,  period, curCatIds))]
+            : [getAllAccountsSummaryForMonth(period, curCatIds), ...accts.map(a => getAccountSummaryForMonth(a.id, period, curCatIds))],
         );
         if (!active) return;
         setAllSummary(allSum);
         setAccounts(accts.map((a, i) => ({ ...a, summary: acctSums[i] })));
+        await refreshCategoriesInPeriod(curMode, period, allCats);
       } else {
         setAccounts(accts.map(a => ({ ...a, summary: EMPTY_SUMMARY })));
         setAllSummary(null);
+        setCategoriesInPeriod([]);
         const backup = await getBackupInfo();
         if (active) setHasBackup(backup.exists && backup.account_count > 0);
       }
@@ -157,13 +181,28 @@ export default function AccountsListScreen() {
   async function handleMonthChange(month: string) {
     updateMonth(month);
     updateMode('month');
-    await loadSummaries(accounts.map(a => a), 'month', month);
+    updateCategoryFilters([]);
+    await Promise.all([
+      loadSummaries(accounts.map(a => a), 'month', month, []),
+      refreshCategoriesInPeriod('month', month, categories),
+    ]);
   }
 
   async function handleYearChange(year: string) {
     updateYear(year);
     updateMode('year');
-    await loadSummaries(accounts.map(a => a), 'year', year);
+    updateCategoryFilters([]);
+    await Promise.all([
+      loadSummaries(accounts.map(a => a), 'year', year, []),
+      refreshCategoriesInPeriod('year', year, categories),
+    ]);
+  }
+
+  async function handleCategoryFilterChange(ids: string[]) {
+    updateCategoryFilters(ids);
+    const mode   = filterModeRef.current;
+    const period = mode === 'year' ? selectedYearRef.current : selectedMonthRef.current;
+    await loadSummaries(accounts.map(a => a), mode, period, ids);
   }
 
   if (loading) {
@@ -213,17 +252,26 @@ export default function AccountsListScreen() {
           ]}
           ListHeaderComponent={hasAccounts ? (
             <>
-              {/* Date picker */}
+              {/* Date + category picker row */}
               {(months.length > 0 || years.length > 0) && (
-                <MonthPicker
-                  months={months}
-                  years={years}
-                  filterMode={filterMode}
-                  selectedMonth={selectedMonth}
-                  selectedYear={selectedYear}
-                  onChangeMonth={handleMonthChange}
-                  onChangeYear={handleYearChange}
-                />
+                <View style={styles.pickerRow}>
+                  <MonthPicker
+                    months={months}
+                    years={years}
+                    filterMode={filterMode}
+                    selectedMonth={selectedMonth}
+                    selectedYear={selectedYear}
+                    onChangeMonth={handleMonthChange}
+                    onChangeYear={handleYearChange}
+                  />
+                  {categoriesInPeriod.length > 0 && (
+                    <CategoryPicker
+                      categories={categoriesInPeriod}
+                      selected={categoryFilters}
+                      onSelect={handleCategoryFilterChange}
+                    />
+                  )}
+                </View>
               )}
 
               {/* All Accounts card */}
@@ -326,6 +374,12 @@ const styles = StyleSheet.create({
   center:    { flex: 1, justifyContent: 'center', alignItems: 'center' },
   list:      { padding: spacing.md, gap: spacing.md },
   listEmpty: { flex: 1 },
+  pickerRow: {
+    flexDirection: 'row',
+    alignItems:    'center',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+  },
 
   allCard: {
     backgroundColor: 'rgba(255,255,255,0.88)',
