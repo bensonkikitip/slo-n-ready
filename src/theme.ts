@@ -1,28 +1,28 @@
-// Slo N Ready design system
-// Jungle-neutral — think forest floor, canopy shadow, weathered bark.
-// Muted and earthy, never bright. Calm but alive.
+// Slo N Ready design system v1.4
+// Jungle watercolor palette — slightly brighter than the backdrop illustration.
+// Warm cream base, sage greens, peach accents. Fresh but never harsh.
 
 export const colors = {
   // Backgrounds
-  background:    '#EDEAE4', // warm stone — main screen bg
-  surface:       '#F8F7F4', // off-white — cards and rows
-  surfaceAlt:    '#E5E2DB', // darker stone — grouped section bg
+  background:    '#FAF7F2', // bright warm cream — main screen bg
+  surface:       '#FFFFFF', // clean white — cards and rows
+  surfaceAlt:    '#F0EDE7', // light stone — grouped section bg
 
   // Brand
-  primary:       '#4A7A5C', // muted forest green — buttons, income, checking accent
-  primaryLight:  '#E2EDE6', // very light moss — selected states
-  accent:        '#7A6B52', // weathered bark — credit card accent, pending
-  accentLight:   '#EDE8E0', // very light warm tone
+  primary:       '#6FA882', // brighter sage green — buttons, income, checking accent
+  primaryLight:  '#E8F3EC', // very light moss — selected states
+  accent:        '#D4956A', // peach/apricot — credit card accent
+  accentLight:   '#FAF0E8', // very light peach
 
   // Financial meaning
-  income:        '#4A7A5C', // forest green
-  expense:       '#8B5E52', // muted terracotta/clay — not harsh red
-  netPositive:   '#4A7A5C',
-  netNegative:   '#8B5E52',
+  income:        '#6FA882', // sage green
+  expense:       '#C4785A', // terracotta — warm, not harsh red
+  netPositive:   '#6FA882',
+  netNegative:   '#C4785A',
 
   // Transaction states
-  pending:       '#8B7A5E', // muted khaki/tan
-  dropped:       '#B5B2AC', // neutral warm gray
+  pending:       '#A89878', // warm khaki/tan
+  dropped:       '#C0BDB7', // neutral warm gray
 
   // Text
   text:          '#28261E', // deep warm near-black
@@ -31,9 +31,9 @@ export const colors = {
   textOnColor:   '#FFFFFF', // text on colored backgrounds
 
   // Chrome
-  border:        '#D5D1C8', // warm stone border
-  separator:     '#E2DFD8', // slightly lighter
-  destructive:   '#8B5E52', // same as expense/muted clay-red
+  border:        '#E0DDD6', // warm light border
+  separator:     '#ECEAE4', // slightly lighter
+  destructive:   '#C4785A', // terracotta
 };
 
 export const spacing = {
@@ -62,6 +62,6 @@ export const font = {
 
 // Account type → brand color mapping
 export const accountColor = {
-  checking:    colors.primary, // forest green
-  credit_card: colors.accent,  // weathered bark
+  checking:    colors.primary, // sage green
+  credit_card: colors.accent,  // peach
 } as const;

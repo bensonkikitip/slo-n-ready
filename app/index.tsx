@@ -1,7 +1,7 @@
 import React, { useCallback, useRef, useState } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity,
-  StyleSheet, ActivityIndicator,
+  StyleSheet, ActivityIndicator, ImageBackground,
 } from 'react-native';
 import { useRouter, useFocusEffect, Stack } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -92,10 +92,14 @@ export default function AccountsListScreen() {
 
   if (loading) {
     return (
-      <View style={styles.center}>
+      <ImageBackground
+        source={require('../assets/backdrop.png')}
+        style={styles.center}
+        resizeMode="cover"
+      >
         <Sloth sloth="sleeping" size={80} />
         <ActivityIndicator style={{ marginTop: spacing.md }} color={colors.primary} />
-      </View>
+      </ImageBackground>
     );
   }
 
@@ -104,7 +108,11 @@ export default function AccountsListScreen() {
   return (
     <>
       <Stack.Screen options={{ title: 'Slo N Ready' }} />
-      <View style={styles.container}>
+      <ImageBackground
+        source={require('../assets/backdrop.png')}
+        style={styles.container}
+        resizeMode="cover"
+      >
         <FlatList
           data={accounts}
           keyExtractor={item => item.id}
@@ -206,26 +214,26 @@ export default function AccountsListScreen() {
             <Text style={styles.fabText}>+</Text>
           </TouchableOpacity>
         )}
-      </View>
+      </ImageBackground>
     </>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.background },
-  center:    { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.background },
+  container: { flex: 1 },
+  center:    { flex: 1, justifyContent: 'center', alignItems: 'center' },
   list:      { padding: spacing.md, gap: spacing.md },
   listEmpty: { flex: 1 },
 
   allCard: {
-    backgroundColor: colors.surface,
+    backgroundColor: 'rgba(255,255,255,0.88)',
     borderRadius:    radius.lg,
     overflow:        'hidden',
     shadowColor:     '#2C2416',
     shadowOffset:    { width: 0, height: 2 },
-    shadowOpacity:   0.07,
-    shadowRadius:    8,
-    elevation:       2,
+    shadowOpacity:   0.1,
+    shadowRadius:    10,
+    elevation:       3,
   },
   allCardTop: {
     flexDirection: 'row',
@@ -239,14 +247,14 @@ const styles = StyleSheet.create({
 
   accountCard: {
     flexDirection:   'row',
-    backgroundColor: colors.surface,
+    backgroundColor: 'rgba(255,255,255,0.88)',
     borderRadius:    radius.lg,
     overflow:        'hidden',
     shadowColor:     '#2C2416',
     shadowOffset:    { width: 0, height: 2 },
-    shadowOpacity:   0.07,
-    shadowRadius:    8,
-    elevation:       2,
+    shadowOpacity:   0.1,
+    shadowRadius:    10,
+    elevation:       3,
   },
   accountAccent:    { width: 5 },
   accountCardInner: { flex: 1 },
@@ -286,8 +294,8 @@ const styles = StyleSheet.create({
     width: 56, height: 56, borderRadius: radius.full,
     backgroundColor: colors.primary,
     alignItems: 'center', justifyContent: 'center',
-    shadowColor: colors.primary, shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.35, shadowRadius: 8, elevation: 6,
+    shadowColor: '#1A4030', shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3, shadowRadius: 8, elevation: 6,
   },
   fabText: { fontSize: 30, color: colors.textOnColor, lineHeight: 34, fontFamily: font.regular },
 });
