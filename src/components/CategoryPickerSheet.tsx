@@ -20,19 +20,25 @@ interface Props {
 export function CategoryPickerSheet({
   visible, categories, currentCategoryId, onSelect, onClose, onCategoryCreated,
 }: Props) {
-  const [phase,    setPhase]    = useState<'list' | 'create'>('list');
-  const [newName,  setNewName]  = useState('');
-  const [newColor, setNewColor] = useState(CATEGORY_COLORS[0].hex);
-  const [creating, setCreating] = useState(false);
+  const [phase,      setPhase]      = useState<'list' | 'create'>('list');
+  const [newName,    setNewName]    = useState('');
+  const [newColor,   setNewColor]   = useState(CATEGORY_COLORS[0].hex);
+  const [creating,   setCreating]   = useState(false);
+  const [searchText, setSearchText] = useState('');
 
-  // Reset create form whenever modal closes or re-opens
+  // Reset form and search whenever modal closes or re-opens
   useEffect(() => {
     if (!visible) {
       setPhase('list');
       setNewName('');
       setNewColor(CATEGORY_COLORS[0].hex);
+      setSearchText('');
     }
   }, [visible]);
+
+  const filteredCategories = searchText.trim()
+    ? categories.filter(c => c.name.toLowerCase().includes(searchText.trim().toLowerCase()))
+    : categories;
 
   async function handleQuickCreate() {
     const trimmed = newName.trim();
@@ -58,8 +64,22 @@ export function CategoryPickerSheet({
         {phase === 'list' ? (
           <>
             <Text style={styles.title}>Assign Category</Text>
+            <View style={styles.searchBar}>
+              <Text style={styles.searchIcon}>⌕</Text>
+              <TextInput
+                style={styles.searchInput}
+                placeholder="Search categories…"
+                placeholderTextColor={colors.textTertiary}
+                value={searchText}
+                onChangeText={setSearchText}
+                clearButtonMode="while-editing"
+                autoCapitalize="none"
+                autoCorrect={false}
+                returnKeyType="search"
+              />
+            </View>
             <FlatList
-              data={categories}
+              data={filteredCategories}
               keyExtractor={c => c.id}
               keyboardShouldPersistTaps="handled"
               ListHeaderComponent={
@@ -89,7 +109,9 @@ export function CategoryPickerSheet({
               }}
               ListEmptyComponent={
                 <View style={styles.emptyWrap}>
-                  <Text style={styles.emptyText}>No categories yet.</Text>
+                  <Text style={styles.emptyText}>
+                    {searchText.trim() ? 'No matching categories.' : 'No categories yet.'}
+                  </Text>
                 </View>
               }
               ListFooterComponent={
@@ -175,6 +197,32 @@ const styles = StyleSheet.create({
   title: {
     fontFamily: font.bold, fontSize: 17, color: colors.text,
     textAlign: 'center', marginBottom: spacing.sm,
+  },
+
+  searchBar: {
+    flexDirection:     'row',
+    alignItems:        'center',
+    marginHorizontal:  spacing.md,
+    marginBottom:      spacing.sm,
+    paddingHorizontal: spacing.sm,
+    paddingVertical:   6,
+    backgroundColor:   colors.surface,
+    borderRadius:      radius.md,
+    borderWidth:       1,
+    borderColor:       colors.border,
+    gap:               spacing.xs,
+  },
+  searchIcon: {
+    fontSize:  19,
+    color:     colors.textTertiary,
+    marginTop: 1,
+  },
+  searchInput: {
+    flex:            1,
+    fontFamily:      font.regular,
+    fontSize:        15,
+    color:           colors.text,
+    paddingVertical: 2,
   },
 
   // List phase
