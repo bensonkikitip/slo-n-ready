@@ -130,10 +130,16 @@ export async function getDb(): Promise<SQLite.SQLiteDatabase> {
   if (version < 6) {
     // Expand the match_type CHECK constraint to include amount_eq/lt/gt.
     // SQLite can't ALTER a CHECK constraint, so we recreate the table.
+    // This migration is written to be safe on retry: drops any leftover
+    // rules_new from a previous partial run, and only copies/drops the
+    // original rules table if it still exists.
+    await db.execAsync('PRAGMA foreign_keys = OFF');
     try {
-      await db.execAsync('PRAGMA foreign_keys = OFF');
+      // Clean up any leftover from a previously interrupted run
+      await db.execAsync('DROP TABLE IF EXISTS rules_new');
+
       await db.execAsync(`
-        CREATE TABLE IF NOT EXISTS rules_new (
+        CREATE TABLE rules_new (
           id          TEXT PRIMARY KEY,
           account_id  TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
           category_id TEXT NOT NULL REFERENCES categories(id) ON DELETE CASCADE,
@@ -146,14 +152,25 @@ export async function getDb(): Promise<SQLite.SQLiteDatabase> {
           created_at  INTEGER NOT NULL
         )
       `);
-      await db.execAsync(`INSERT OR IGNORE INTO rules_new SELECT * FROM rules`);
-      await db.execAsync(`DROP TABLE IF EXISTS rules`);
+
+      // Only copy + drop the old table if it still exists
+      const row = await db.getFirstAsync<{ n: number }>(
+        `SELECT COUNT(*) AS n FROM sqlite_master WHERE type='table' AND name='rules'`,
+      );
+      if (row && row.n > 0) {
+        await db.execAsync(`INSERT INTO rules_new SELECT * FROM rules`);
+        await db.execAsync(`DROP TABLE rules`);
+      }
+
       await db.execAsync(`ALTER TABLE rules_new RENAME TO rules`);
+      await db.execAsync(`DROP INDEX IF EXISTS idx_rules_account_priority`);
       await db.execAsync(`CREATE INDEX IF NOT EXISTS idx_rules_account_priority ON rules (account_id, priority ASC)`);
+
+      // Only mark complete if every step above succeeded
+      await db.execAsync('PRAGMA user_version = 6');
     } finally {
       await db.execAsync('PRAGMA foreign_keys = ON');
     }
-    await db.execAsync('PRAGMA user_version = 6');
   }
 
   _db = db;
