@@ -77,11 +77,13 @@ Pure functions, no React, no DB. Safe to import anywhere; covered by Jest tests 
 |---|---|---|
 | `rules-engine.ts` | `applyRulesToTransactions(txs, rules) → RuleAssignment[]`, `autoApplyRulesForAccount(accountId)`, `autoApplyAllRules()` | Evaluates each rule's conditions (AND/OR) against a transaction's normalized description and amount. First-match wins (rules are pre-sorted by `priority ASC`). Skips manually-categorized transactions and dropped transactions. |
 | `budget.ts` | `splitYearTotal(cents)`, `computeYearTotal(monthMap, year)`, `applyPercentage(cents, pct)`, `monthsInYear(year)` | Budget math. `splitYearTotal` distributes an annual amount across 12 months with rounding correction so the parts sum back to the original. `monthsInYear` returns 12 `YYYY-MM` keys. |
+| `budget-variance.ts` | `buildCategoryRows(budgetRows, actualRows, monthsInRange)`, `computeVarianceSummary(rows)`, `classifyRow(row)`, `computeProgress(row)`, `sortCategoryRows(rows, nameFn)` | Budget vs. actual comparison math. `buildCategoryRows` merges per-month budget and actual data into one row per category for any period (1-month or 12-month range). `classifyRow` is sign-of-budget-aware ('good'/'bad'/'neutral'). `computeProgress` returns a 0–1.5 fill ratio for the progress bar. |
 | `money.ts` | `centsToDollars(cents)`, `parseDollarsToCents(value)` | Money formatting. `parseDollarsToCents` handles `$`, commas, parens-as-negative, leading/trailing whitespace. |
 | `month.ts` | `buildYearList`, `buildMonthList`, `monthLabel(key)` | Builds picker entries. Always shows a 6-month window around the latest data even if the DB has gaps. |
 | `transaction-id.ts` | `assignTransactionIds(rows) → string[]` | Deterministic SHA256 of `accountId\|date\|amount_cents\|normalized_description`, with a sequence counter for exact dupes within the same import. See "CSV import" below. |
 | `normalize.ts` | `normalizeDescription(raw)`, `mmddyyyyToIso(date)` | Trim, collapse whitespace, uppercase. Date format conversion. |
 | `category-colors.ts` | `CATEGORY_COLORS` (readonly) | The 8 picker swatches: Sage, Peach, Terracotta, Sky, Lavender, Gold, Berry, Slate. |
+| `rachey-quotes.ts` | `pickRacheyLine(moment)`, `RACHEY_QUOTES`, `RACHEY_MOMENTS`, `RacheyMoment` | 50 unique encouragement lines across 15 named moments (e.g. `firstImport`, `bulkCategorize`, `milestone100Tx`). Each moment maps to a `SlothKey` pose and a pool of 3–9 lines. `pickRacheyLine` selects one at random. |
 
 ---
 
@@ -120,7 +122,12 @@ Expo Router maps the file tree directly to routes. `[id]` is a dynamic segment.
 | `BudgetCellModal` | budget grid | Edit one budget cell. |
 | `BudgetRowActionsModal` | budget grid | Row menu: split year total, fill from prev year, apply %, clear. |
 | `BudgetFillPercentModal` | budget grid | Input a % to apply across a row or the whole grid. |
+| `ActivityBudgetToggle` | home, account detail, all accounts | Segmented "Activity / Budget" control near the month picker. |
+| `BudgetVarianceSummary` | home, account detail, all accounts | 3-cell block (same shape as `SummaryBar`) showing income actual + variance, expense actual + variance, and net variance. |
+| `BudgetCategoryRow` | `BudgetView` | One category row with color dot, progress bar, budget/actual amounts, and variance. |
+| `BudgetView` | account detail, all accounts | Container: renders `BudgetVarianceSummary` + optional YTD chip + `FlatList` of `BudgetCategoryRow`s. Shows empty state with CTA when no budget is set. |
 | `Sloth` | empty states, splash | Mascot SVGs (meditating, sleeping, laptop, piggyBank). |
+| `RacheyBanner` | categories, home, rules, account detail, import, backup | Inline banner: small Rachey pose (52px) + random encouragement line + dismiss ×. Locks pose and line on mount via `useState(() => pickRacheyLine(moment))` so it never re-randomizes mid-render. |
 
 ---
 
@@ -164,6 +171,21 @@ Implemented in [`app/account/[id]/budget.tsx`](../app/account/[id]/budget.tsx) u
 - `bulkSetBudgets` and `replaceBudgetsForYear` for row/grid actions in a single transaction.
 
 `splitYearTotal` is the rounding-safe way to distribute an annual amount across 12 months: any rounding remainder is added to the last month so the parts sum exactly to the input.
+
+### Budget vs. actual (Activity / Budget toggle)
+
+An **Activity / Budget toggle** (`ActivityBudgetToggle`) sits near the `MonthPicker` on three screens: home (`app/index.tsx`), account detail (`app/account/[id]/index.tsx`), and all accounts (`app/all.tsx`). Switching to Budget mode replaces the transaction-list content with `BudgetView` (or, on the home screen, replaces each card's `SummaryBar` with `BudgetVarianceSummary`).
+
+Budget data is year-grain (one query per year, cached until the screen loses focus). The month/year picker still drives the comparison — switching months within the same year is free (client-side filter via `monthsInRange`).
+
+Per-category variance is computed by:
+1. `buildCategoryRows(budgetRows, actualRows, monthsInRange)` — merges budget and actual data.
+2. `computeVarianceSummary(rows)` — aggregates income and expense halves separately.
+3. `classifyRow(row)` — sign-of-budget-aware track classification for bar color.
+
+**All-accounts page**: budgets aggregated across accounts by category (`getBudgetsForAllAccountsYear`). Missing per-account budgets treated as $0. **Home screen**: two batched queries (`getBudgetsForAllAccountsYearByAccount`, `getActualsByCategoryMonthAllAccountsByAccount`) return all data in one round-trip; client fans out to per-card summaries.
+
+A **year-to-date chip** appears in Budget view when the selected year is the current calendar year and some months have not elapsed yet, reminding the user that the variance is partial.
 
 ### Backup & restore
 

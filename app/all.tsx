@@ -7,22 +7,32 @@ import {
   getAllAccounts, getDistinctMonths, getAllTransactionsForMonth,
   getDistinctYears, getAllTransactionsForYear,
   getAllCategories, setTransactionCategory,
+  getBudgetsForAllAccountsYear, getActualsByCategoryMonthAllAccounts,
 } from '../src/db/queries';
 import { buildMonthList, buildYearList, MonthEntry, YearEntry } from '../src/domain/month';
+import { monthsInYear } from '../src/domain/budget';
+import { buildCategoryRows, computeVarianceSummary } from '../src/domain/budget-variance';
 import { FilterMode } from '../src/components/MonthPicker';
 import { SummaryBar } from '../src/components/SummaryBar';
 import { MonthPicker } from '../src/components/MonthPicker';
 import { CategoryPicker, NONE_FILTER } from '../src/components/CategoryPicker';
 import { TransactionRow } from '../src/components/TransactionRow';
 import { CategoryPickerSheet } from '../src/components/CategoryPickerSheet';
+import { ActivityBudgetToggle } from '../src/components/ActivityBudgetToggle';
+import { BudgetView } from '../src/components/BudgetView';
 import { Sloth } from '../src/components/Sloth';
 import { writeBackup } from '../src/db/backup';
 import { colors, font, spacing, radius } from '../src/theme';
 import { centsToDollars } from '../src/domain/money';
 
+type BudgetRow = { category_id: string; month: string; amount_cents: number };
+type ActualRow = { category_id: string; month: string; total_cents: number };
+
 export default function AllAccountsScreen() {
   const insets  = useSafeAreaInsets();
   const router  = useRouter();
+
+  // ── existing state ────────────────────────────────────────────────────────
   const [accounts,              setAccounts]              = useState<Account[]>([]);
   const [transactions,          setTransactions]          = useState<Transaction[]>([]);
   const [months,                setMonths]                = useState<MonthEntry[]>([]);
@@ -39,14 +49,41 @@ export default function AllAccountsScreen() {
   const [breakdownOpen,         setBreakdownOpen]         = useState(false);
   const [undoBanner,            setUndoBanner]            = useState<{ txId: string; prevCategoryId: string | null } | null>(null);
 
+  // ── Budget view state ─────────────────────────────────────────────────────
+  const [viewMode,       setViewMode]       = useState<'activity' | 'budget'>('activity');
+  const [budgetDataYear, setBudgetDataYear] = useState<string | null>(null);
+  const [budgetRows,     setBudgetRows]     = useState<BudgetRow[]>([]);
+  const [actualsRows,    setActualsRows]    = useState<ActualRow[]>([]);
+
+  // ── refs ──────────────────────────────────────────────────────────────────
   const selectedMonthRef = useRef('');
   const selectedYearRef  = useRef('');
   const filterModeRef    = useRef<FilterMode>('month');
+  const viewModeRef      = useRef<'activity' | 'budget'>('activity');
 
   function updateMonth(m: string)    { selectedMonthRef.current = m; setSelectedMonth(m); }
   function updateYear(y: string)     { selectedYearRef.current  = y; setSelectedYear(y);  }
   function updateMode(m: FilterMode) { filterModeRef.current    = m; setFilterMode(m);    }
+  function updateViewMode(v: 'activity' | 'budget') { viewModeRef.current = v; setViewMode(v); }
 
+  // ── budget data loading ───────────────────────────────────────────────────
+  async function loadBudgetData(year: string) {
+    if (budgetDataYear === year) return;
+    const [b, a] = await Promise.all([
+      getBudgetsForAllAccountsYear(year),
+      getActualsByCategoryMonthAllAccounts(year),
+    ]);
+    setBudgetRows(b);
+    setActualsRows(a);
+    setBudgetDataYear(year);
+  }
+
+  function yearForCurrentPeriod(): string {
+    if (filterModeRef.current === 'year') return selectedYearRef.current;
+    return selectedMonthRef.current.slice(0, 4);
+  }
+
+  // ── focus effect ──────────────────────────────────────────────────────────
   useFocusEffect(useCallback(() => {
     let active = true;
     (async () => {
@@ -84,6 +121,22 @@ export default function AllAccountsScreen() {
       if (!active) return;
       setTransactions(txns);
       setLoading(false);
+
+      // Invalidate budget cache on refocus; reload if Budget view is active
+      setBudgetDataYear(null);
+      if (viewModeRef.current === 'budget') {
+        const yr = curMode === 'year' ? year : month.slice(0, 4);
+        if (yr) {
+          const [b, a] = await Promise.all([
+            getBudgetsForAllAccountsYear(yr),
+            getActualsByCategoryMonthAllAccounts(yr),
+          ]);
+          if (!active) return;
+          setBudgetRows(b);
+          setActualsRows(a);
+          setBudgetDataYear(yr);
+        }
+      }
     })();
     return () => { active = false; };
   }, []));
@@ -94,6 +147,7 @@ export default function AllAccountsScreen() {
     setCategoryFilters([]);
     setSearchText('');
     setTransactions(await getAllTransactionsForMonth(month));
+    if (viewModeRef.current === 'budget') void loadBudgetData(month.slice(0, 4));
   }
 
   async function handleYearChange(year: string) {
@@ -102,8 +156,15 @@ export default function AllAccountsScreen() {
     setCategoryFilters([]);
     setSearchText('');
     setTransactions(await getAllTransactionsForYear(year));
+    if (viewModeRef.current === 'budget') void loadBudgetData(year);
   }
 
+  async function handleToggleViewMode(v: 'activity' | 'budget') {
+    updateViewMode(v);
+    if (v === 'budget') void loadBudgetData(yearForCurrentPeriod());
+  }
+
+  // ── derived data (activity) ───────────────────────────────────────────────
   const accountMap = useMemo(
     () => Object.fromEntries(accounts.map(a => [a.id, a])),
     [accounts],
@@ -167,6 +228,39 @@ export default function AllAccountsScreen() {
       .sort((a, b) => Math.abs(b.total) - Math.abs(a.total));
   }, [transactions, categoryMap]);
 
+  // ── derived data (budget view) ────────────────────────────────────────────
+  const monthsInRange = useMemo(() => {
+    if (filterMode === 'year') return selectedYear ? monthsInYear(selectedYear) : [];
+    return selectedMonth ? [selectedMonth] : [];
+  }, [filterMode, selectedMonth, selectedYear]);
+
+  const budgetCategoryRows = useMemo(
+    () => buildCategoryRows(budgetRows, actualsRows, monthsInRange),
+    [budgetRows, actualsRows, monthsInRange],
+  );
+
+  const budgetSummary = useMemo(
+    () => computeVarianceSummary(budgetCategoryRows),
+    [budgetCategoryRows],
+  );
+
+  const hasAnyBudget = useMemo(() => {
+    const rangeSet = new Set(monthsInRange);
+    return budgetRows.some(r => rangeSet.has(r.month));
+  }, [budgetRows, monthsInRange]);
+
+  const ytdNote = useMemo(() => {
+    if (filterMode !== 'year') return undefined;
+    const thisYear = new Date().getFullYear().toString();
+    if (selectedYear !== thisYear) return undefined;
+    const nowMonth = new Date().getMonth();
+    if (nowMonth >= 11) return undefined;
+    const monthNames = ['January','February','March','April','May','June',
+                        'July','August','September','October','November','December'];
+    return `Through ${monthNames[nowMonth]} ${selectedYear}`;
+  }, [filterMode, selectedYear]);
+
+  // ── handlers ─────────────────────────────────────────────────────────────
   async function handleCategorySelect(categoryId: string | null) {
     if (!selectedTransactionId) return;
     const tx = transactions.find(t => t.id === selectedTransactionId);
@@ -215,6 +309,7 @@ export default function AllAccountsScreen() {
     }
   }
 
+  // ── early return ──────────────────────────────────────────────────────────
   if (loading) {
     return (
       <View style={styles.center}>
@@ -241,7 +336,8 @@ export default function AllAccountsScreen() {
               onChangeMonth={handleMonthChange}
               onChangeYear={handleYearChange}
             />
-            {(categoriesInPeriod.length > 0 || hasUncategorized) && (
+            <ActivityBudgetToggle value={viewMode} onChange={handleToggleViewMode} />
+            {viewMode === 'activity' && (categoriesInPeriod.length > 0 || hasUncategorized) && (
               <CategoryPicker
                 categories={categoriesInPeriod}
                 selected={categoryFilters}
@@ -252,93 +348,109 @@ export default function AllAccountsScreen() {
           </View>
         )}
 
-        {categoryTotals.length > 0 && (
-          <View style={styles.breakdown}>
-            <TouchableOpacity
-              style={styles.breakdownHeader}
-              onPress={() => setBreakdownOpen(o => !o)}
-              activeOpacity={0.7}
-            >
-              <Text style={styles.breakdownTitle}>Totals by Category</Text>
-              <Text style={styles.breakdownChevron}>{breakdownOpen ? '▲' : '▼'}</Text>
-            </TouchableOpacity>
-
-            {breakdownOpen && categoryTotals.map(row => (
-              <TouchableOpacity
-                key={row.key}
-                style={styles.breakdownRow}
-                activeOpacity={0.7}
-                onPress={() => { setCategoryFilters([row.key]); setBreakdownOpen(false); }}
-              >
-                {row.color
-                  ? <View style={[styles.breakdownDot, { backgroundColor: row.color }]} />
-                  : <View style={[styles.breakdownDot, styles.breakdownDotEmpty]} />
-                }
-                <Text style={styles.breakdownName} numberOfLines={1}>{row.name}</Text>
-                <Text style={[styles.breakdownAmount, { color: row.total >= 0 ? colors.income : colors.text }]}>
-                  {centsToDollars(row.total)}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
+        {/* ── Budget view ─────────────────────────────────────────── */}
+        {viewMode === 'budget' && (
+          <BudgetView
+            summary={budgetSummary}
+            rows={budgetCategoryRows}
+            categoryById={categoryMap}
+            hasAnyBudget={hasAnyBudget}
+            ytdNote={ytdNote}
+          />
         )}
 
-        {transactions.length > 0 && (
-          <View style={styles.searchBar}>
-            <Text style={styles.searchIcon}>⌕</Text>
-            <TextInput
-              style={styles.searchInput}
-              placeholder="Search transactions…"
-              placeholderTextColor={colors.textTertiary}
-              value={searchText}
-              onChangeText={setSearchText}
-              clearButtonMode="while-editing"
-              autoCapitalize="none"
-              autoCorrect={false}
-              returnKeyType="search"
+        {/* ── Activity view ───────────────────────────────────────── */}
+        {viewMode === 'activity' && (
+          <>
+            {categoryTotals.length > 0 && (
+              <View style={styles.breakdown}>
+                <TouchableOpacity
+                  style={styles.breakdownHeader}
+                  onPress={() => setBreakdownOpen(o => !o)}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.breakdownTitle}>Totals by Category</Text>
+                  <Text style={styles.breakdownChevron}>{breakdownOpen ? '▲' : '▼'}</Text>
+                </TouchableOpacity>
+
+                {breakdownOpen && categoryTotals.map(row => (
+                  <TouchableOpacity
+                    key={row.key}
+                    style={styles.breakdownRow}
+                    activeOpacity={0.7}
+                    onPress={() => { setCategoryFilters([row.key]); setBreakdownOpen(false); }}
+                  >
+                    {row.color
+                      ? <View style={[styles.breakdownDot, { backgroundColor: row.color }]} />
+                      : <View style={[styles.breakdownDot, styles.breakdownDotEmpty]} />
+                    }
+                    <Text style={styles.breakdownName} numberOfLines={1}>{row.name}</Text>
+                    <Text style={[styles.breakdownAmount, { color: row.total >= 0 ? colors.income : colors.text }]}>
+                      {centsToDollars(row.total)}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
+
+            {transactions.length > 0 && (
+              <View style={styles.searchBar}>
+                <Text style={styles.searchIcon}>⌕</Text>
+                <TextInput
+                  style={styles.searchInput}
+                  placeholder="Search transactions…"
+                  placeholderTextColor={colors.textTertiary}
+                  value={searchText}
+                  onChangeText={setSearchText}
+                  clearButtonMode="while-editing"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  returnKeyType="search"
+                />
+              </View>
+            )}
+
+            <SummaryBar
+              incomeCents={monthSummary.income_cents}
+              expenseCents={monthSummary.expense_cents}
+              netCents={monthSummary.net_cents}
             />
-          </View>
+
+            <FlatList
+              data={displayedTransactions}
+              keyExtractor={item => item.id}
+              renderItem={({ item }) => (
+                <TransactionRow
+                  transaction={item}
+                  accountBadge={accountMap[item.account_id]?.name}
+                  category={item.category_id ? categoryMap[item.category_id] ?? null : null}
+                  onPress={() => setSelectedTransactionId(item.id)}
+                />
+              )}
+              contentContainerStyle={[
+                displayedTransactions.length === 0 && styles.emptyContainer,
+                { paddingBottom: insets.bottom + spacing.lg },
+              ]}
+              ListEmptyComponent={
+                <View style={styles.emptyState}>
+                  <Sloth sloth="meditating" size={130} />
+                  <Text style={styles.emptyTitle}>
+                    {!hasAnyData ? "I'm ready when you are!" : 'Nothing here'}
+                  </Text>
+                  <Text style={styles.emptyBody}>
+                    {!hasAnyData
+                      ? "Import a CSV from one of your accounts and I'll show everything together here."
+                      : categoryFilters.length > 0
+                      ? "No transactions match the selected categories."
+                      : searchText.trim()
+                      ? "No transactions match your search."
+                      : "I don't see any transactions for this period — try a different one."}
+                  </Text>
+                </View>
+              }
+            />
+          </>
         )}
-
-        <SummaryBar
-          incomeCents={monthSummary.income_cents}
-          expenseCents={monthSummary.expense_cents}
-          netCents={monthSummary.net_cents}
-        />
-
-        <FlatList
-          data={displayedTransactions}
-          keyExtractor={item => item.id}
-          renderItem={({ item }) => (
-            <TransactionRow
-              transaction={item}
-              accountBadge={accountMap[item.account_id]?.name}
-              category={item.category_id ? categoryMap[item.category_id] ?? null : null}
-              onPress={() => setSelectedTransactionId(item.id)}
-            />
-          )}
-          contentContainerStyle={[
-            displayedTransactions.length === 0 && styles.emptyContainer,
-            { paddingBottom: insets.bottom + spacing.lg },
-          ]}
-          ListEmptyComponent={
-            <View style={styles.emptyState}>
-              <Sloth sloth="meditating" size={130} />
-              <Text style={styles.emptyTitle}>
-                {!hasAnyData ? "I'm ready when you are!" : 'Nothing here'}
-              </Text>
-              <Text style={styles.emptyBody}>
-                {!hasAnyData
-                  ? "Import a CSV from one of your accounts and I'll show everything together here."
-                  : categoryFilters.length > 0
-                  ? "No transactions match the selected categories."
-                  : searchText.trim()
-                  ? "No transactions match your search."
-                  : "I don't see any transactions for this period — try a different one."}
-              </Text>
-            </View>
-          }
-        />
       </View>
 
       <CategoryPickerSheet
@@ -389,6 +501,8 @@ const styles = StyleSheet.create({
     flexDirection:     'row',
     alignItems:        'center',
     paddingHorizontal: spacing.md,
+    paddingVertical:   4,
+    gap:               spacing.sm,
     borderBottomWidth: 1,
     borderBottomColor: colors.separator,
   },

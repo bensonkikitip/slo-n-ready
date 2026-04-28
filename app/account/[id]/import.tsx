@@ -11,6 +11,7 @@ import * as Crypto from 'expo-crypto';
 import {
   getAllAccounts, Account, importTransactions,
   insertImportBatch, updateImportBatchCounts, ImportResult, parseColumnConfig,
+  getDistinctMonths,
 } from '../../../src/db/queries';
 import { writeBackup } from '../../../src/db/backup';
 import { autoApplyRulesForAccount } from '../../../src/domain/rules-engine';
@@ -18,6 +19,7 @@ import { parseCsv, ParsedRow } from '../../../src/parsers';
 import { assignTransactionIds } from '../../../src/domain/transaction-id';
 import { centsToDollars } from '../../../src/domain/money';
 import { Sloth } from '../../../src/components/Sloth';
+import { RacheyBanner } from '../../../src/components/RacheyBanner';
 import { colors, font, spacing, radius, accountColor } from '../../../src/theme';
 
 type Phase = 'pick' | 'preview' | 'done';
@@ -28,11 +30,12 @@ export default function ImportScreen() {
   const { id: accountId } = useLocalSearchParams<{ id: string }>();
   const router  = useRouter();
   const insets  = useSafeAreaInsets();
-  const [phase,   setPhase]   = useState<Phase>('pick');
-  const [preview, setPreview] = useState<PreviewData | null>(null);
-  const [result,  setResult]  = useState<ImportResult | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [account, setAccount] = useState<Account | null>(null);
+  const [phase,        setPhase]        = useState<Phase>('pick');
+  const [preview,      setPreview]      = useState<PreviewData | null>(null);
+  const [result,       setResult]       = useState<ImportResult | null>(null);
+  const [loading,      setLoading]      = useState(false);
+  const [account,      setAccount]      = useState<Account | null>(null);
+  const [racheyMoment, setRacheyMoment] = useState<'firstImport' | 'recurringImport' | null>(null);
 
   React.useEffect(() => {
     getAllAccounts().then(accts => setAccount(accts.find(a => a.id === accountId) ?? null));
@@ -75,6 +78,8 @@ export default function ImportScreen() {
     if (!preview) return;
     setLoading(true);
     try {
+      const priorMonths = await getDistinctMonths(accountId);
+      const isFirstImport = priorMonths.length === 0;
       const batchId     = Crypto.randomUUID();
       const importedAt  = Date.now();
 
@@ -115,6 +120,7 @@ export default function ImportScreen() {
 
       void writeBackup();
       setResult(importResult);
+      setRacheyMoment(isFirstImport ? 'firstImport' : 'recurringImport');
       setPhase('done');
     } catch (e: any) {
       Alert.alert('Import failed', e.message ?? 'Unknown error');
@@ -224,6 +230,10 @@ export default function ImportScreen() {
           <View style={styles.doneContainer}>
             <Sloth sloth="thumbsUp" size={140} />
             <Text style={styles.doneTitle}>All done — nice work!</Text>
+
+            {racheyMoment && (
+              <RacheyBanner moment={racheyMoment} onDismiss={() => setRacheyMoment(null)} />
+            )}
 
             <View style={styles.statsCard}>
               <StatRow label="Added"                   value={String(result.inserted)} />

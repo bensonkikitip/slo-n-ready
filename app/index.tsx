@@ -1,4 +1,4 @@
-import React, { useCallback, useRef, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity,
   StyleSheet, ActivityIndicator, ImageBackground, Alert,
@@ -6,21 +6,27 @@ import {
 import { useRouter, useFocusEffect, Stack } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
-  Account, AccountSummary, Category, getAllAccounts, getAllCategories,
+  Account, AccountSummary, Budget, Category, getAllAccounts, getAllCategories,
   getDistinctMonths, getAccountSummaryForMonth, getAllAccountsSummaryForMonth,
   getDistinctYears, getAccountSummaryForYear, getAllAccountsSummaryForYear,
   getDistinctCategoryIdsForMonth, getDistinctCategoryIdsForYear,
+  getBudgetsForAllAccountsYearByAccount, getActualsByCategoryMonthAllAccountsByAccount,
 } from '../src/db/queries';
 import { buildMonthList, buildYearList, MonthEntry, YearEntry } from '../src/domain/month';
+import { monthsInYear } from '../src/domain/budget';
+import { buildCategoryRows, computeVarianceSummary } from '../src/domain/budget-variance';
 import { FilterMode } from '../src/components/MonthPicker';
 import { SummaryBar } from '../src/components/SummaryBar';
+import { BudgetVarianceSummary } from '../src/components/BudgetVarianceSummary';
+import { ActivityBudgetToggle } from '../src/components/ActivityBudgetToggle';
 import { MonthPicker } from '../src/components/MonthPicker';
 import { CategoryPicker } from '../src/components/CategoryPicker';
 import { Sloth } from '../src/components/Sloth';
+import { RacheyBanner } from '../src/components/RacheyBanner';
 import { colors, font, spacing, radius, accountColor } from '../src/theme';
-import { centsToDollars } from '../src/domain/money';
 import { getBackupInfo, restoreFromData, readBackupFromPath, BACKUP_PATH } from '../src/db/backup';
 
+type ActualRowByAccount = { account_id: string; category_id: string; month: string; total_cents: number };
 
 interface AccountWithSummary extends Account { summary: AccountSummary }
 
@@ -32,24 +38,36 @@ const EMPTY_SUMMARY: AccountSummary = {
 export default function AccountsListScreen() {
   const router   = useRouter();
   const insets   = useSafeAreaInsets();
-  const [accounts,         setAccounts]         = useState<AccountWithSummary[]>([]);
-  const [allSummary,       setAllSummary]       = useState<AccountSummary | null>(null);
-  const [months,           setMonths]           = useState<MonthEntry[]>([]);
-  const [years,            setYears]            = useState<YearEntry[]>([]);
-  const [selectedMonth,    setSelectedMonth]    = useState('');
-  const [selectedYear,     setSelectedYear]     = useState('');
-  const [filterMode,       setFilterMode]       = useState<FilterMode>('month');
-  const [loading,          setLoading]          = useState(true);
-  const [hasBackup,        setHasBackup]        = useState(false);
-  const [categories,       setCategories]       = useState<Category[]>([]);
-  const [categoryFilters,  setCategoryFilters]  = useState<string[]>([]);
-  const [categoriesInPeriod, setCategoriesInPeriod] = useState<Category[]>([]);
 
-  // Refs so useFocusEffect (empty deps) can always read latest values
+  // ── existing state ────────────────────────────────────────────────────────
+  const [accounts,             setAccounts]             = useState<AccountWithSummary[]>([]);
+  const [allSummary,           setAllSummary]           = useState<AccountSummary | null>(null);
+  const [months,               setMonths]               = useState<MonthEntry[]>([]);
+  const [years,                setYears]                = useState<YearEntry[]>([]);
+  const [selectedMonth,        setSelectedMonth]        = useState('');
+  const [selectedYear,         setSelectedYear]         = useState('');
+  const [filterMode,           setFilterMode]           = useState<FilterMode>('month');
+  const [loading,              setLoading]              = useState(true);
+  const [hasBackup,            setHasBackup]            = useState(false);
+  const [categories,           setCategories]           = useState<Category[]>([]);
+  const [categoryFilters,      setCategoryFilters]      = useState<string[]>([]);
+  const [categoriesInPeriod,   setCategoriesInPeriod]   = useState<Category[]>([]);
+
+  // ── Budget view state ─────────────────────────────────────────────────────
+  const [viewMode,       setViewMode]       = useState<'activity' | 'budget'>('activity');
+  const [budgetDataYear, setBudgetDataYear] = useState<string | null>(null);
+  const [allBudgetRows,  setAllBudgetRows]  = useState<Budget[]>([]);
+  const [allActualsRows, setAllActualsRows] = useState<ActualRowByAccount[]>([]);
+
+  const [racheyMoment, setRacheyMoment] = useState<'firstAccount' | null>(null);
+
+  // ── refs ──────────────────────────────────────────────────────────────────
   const selectedMonthRef   = useRef('');
   const selectedYearRef    = useRef('');
   const filterModeRef      = useRef<FilterMode>('month');
   const categoryFiltersRef = useRef<string[]>([]);
+  const viewModeRef        = useRef<'activity' | 'budget'>('activity');
+  const prevAccountCount   = useRef(-1);
 
   function updateMonth(m: string) { selectedMonthRef.current = m; setSelectedMonth(m); }
   function updateYear(y: string)  { selectedYearRef.current  = y; setSelectedYear(y);  }
@@ -58,7 +76,70 @@ export default function AccountsListScreen() {
     categoryFiltersRef.current = ids;
     setCategoryFilters(ids);
   }
+  function updateViewMode(v: 'activity' | 'budget') { viewModeRef.current = v; setViewMode(v); }
 
+  function yearForCurrentPeriod(): string {
+    if (filterModeRef.current === 'year') return selectedYearRef.current;
+    return selectedMonthRef.current.slice(0, 4);
+  }
+
+  // ── budget data loading ───────────────────────────────────────────────────
+  async function loadBudgetData(year: string) {
+    if (budgetDataYear === year) return;
+    const [b, a] = await Promise.all([
+      getBudgetsForAllAccountsYearByAccount(year),
+      getActualsByCategoryMonthAllAccountsByAccount(year),
+    ]);
+    setAllBudgetRows(b);
+    setAllActualsRows(a);
+    setBudgetDataYear(year);
+  }
+
+  // ── derived data (budget view) ────────────────────────────────────────────
+  const monthsInRange = useMemo(() => {
+    if (filterMode === 'year') return selectedYear ? monthsInYear(selectedYear) : [];
+    return selectedMonth ? [selectedMonth] : [];
+  }, [filterMode, selectedMonth, selectedYear]);
+
+  const budgetSummaryByAccount = useMemo(() => {
+    const result = new Map<string, ReturnType<typeof computeVarianceSummary>>();
+    if (viewMode !== 'budget' || monthsInRange.length === 0) return result;
+
+    const budgetsByAccount = new Map<string, Budget[]>();
+    for (const r of allBudgetRows) {
+      if (!budgetsByAccount.has(r.account_id)) budgetsByAccount.set(r.account_id, []);
+      budgetsByAccount.get(r.account_id)!.push(r);
+    }
+    const actualsByAccount = new Map<string, ActualRowByAccount[]>();
+    for (const r of allActualsRows) {
+      if (!actualsByAccount.has(r.account_id)) actualsByAccount.set(r.account_id, []);
+      actualsByAccount.get(r.account_id)!.push(r);
+    }
+
+    for (const acct of accounts) {
+      const b = budgetsByAccount.get(acct.id) ?? [];
+      const a = actualsByAccount.get(acct.id) ?? [];
+      const rows = buildCategoryRows(
+        b,
+        a.map(r => ({ category_id: r.category_id, month: r.month, total_cents: r.total_cents })),
+        monthsInRange,
+      );
+      result.set(acct.id, computeVarianceSummary(rows));
+    }
+    return result;
+  }, [viewMode, allBudgetRows, allActualsRows, accounts, monthsInRange]);
+
+  const allAccountsBudgetSummary = useMemo(() => {
+    if (viewMode !== 'budget' || monthsInRange.length === 0) return null;
+    const rows = buildCategoryRows(
+      allBudgetRows,
+      allActualsRows.map(r => ({ category_id: r.category_id, month: r.month, total_cents: r.total_cents })),
+      monthsInRange,
+    );
+    return computeVarianceSummary(rows);
+  }, [viewMode, allBudgetRows, allActualsRows, monthsInRange]);
+
+  // ── existing helpers ──────────────────────────────────────────────────────
   async function loadSummaries(accts: Account[], mode: FilterMode, period: string, catIds: string[] = []) {
     if (!period || accts.length === 0) return;
     const [allSum, ...acctSums] = await Promise.all(
@@ -79,6 +160,7 @@ export default function AccountsListScreen() {
     setCategoriesInPeriod(allCats.filter(c => idSet.has(c.id)));
   }
 
+  // ── focus effect ──────────────────────────────────────────────────────────
   useFocusEffect(useCallback(() => {
     let active = true;
     (async () => {
@@ -86,6 +168,10 @@ export default function AccountsListScreen() {
         getAllAccounts(), getDistinctMonths(), getDistinctYears(), getAllCategories(),
       ]);
       if (!active) return;
+
+      const isFirstAccount = prevAccountCount.current === 0 && accts.length === 1;
+      prevAccountCount.current = accts.length;
+      if (isFirstAccount) setRacheyMoment('firstAccount');
 
       setCategories(allCats);
 
@@ -128,10 +214,61 @@ export default function AccountsListScreen() {
         if (active) setHasBackup(backup.exists && backup.account_count > 0);
       }
 
+      // Invalidate budget cache; reload if Budget view is active
+      setBudgetDataYear(null);
+      if (viewModeRef.current === 'budget') {
+        const yr = curMode === 'year' ? year : month.slice(0, 4);
+        if (yr) {
+          const [b, a] = await Promise.all([
+            getBudgetsForAllAccountsYearByAccount(yr),
+            getActualsByCategoryMonthAllAccountsByAccount(yr),
+          ]);
+          if (!active) return;
+          setAllBudgetRows(b);
+          setAllActualsRows(a);
+          setBudgetDataYear(yr);
+        }
+      }
+
       if (active) setLoading(false);
     })();
     return () => { active = false; };
   }, []));
+
+  // ── period change handlers ────────────────────────────────────────────────
+  async function handleMonthChange(month: string) {
+    updateMonth(month);
+    updateMode('month');
+    updateCategoryFilters([]);
+    await Promise.all([
+      loadSummaries(accounts.map(a => a), 'month', month, []),
+      refreshCategoriesInPeriod('month', month, categories),
+    ]);
+    if (viewModeRef.current === 'budget') void loadBudgetData(month.slice(0, 4));
+  }
+
+  async function handleYearChange(year: string) {
+    updateYear(year);
+    updateMode('year');
+    updateCategoryFilters([]);
+    await Promise.all([
+      loadSummaries(accounts.map(a => a), 'year', year, []),
+      refreshCategoriesInPeriod('year', year, categories),
+    ]);
+    if (viewModeRef.current === 'budget') void loadBudgetData(year);
+  }
+
+  async function handleCategoryFilterChange(ids: string[]) {
+    updateCategoryFilters(ids);
+    const mode   = filterModeRef.current;
+    const period = mode === 'year' ? selectedYearRef.current : selectedMonthRef.current;
+    await loadSummaries(accounts.map(a => a), mode, period, ids);
+  }
+
+  async function handleToggleViewMode(v: 'activity' | 'budget') {
+    updateViewMode(v);
+    if (v === 'budget') void loadBudgetData(yearForCurrentPeriod());
+  }
 
   async function handleRestore() {
     const data = await readBackupFromPath(BACKUP_PATH);
@@ -178,33 +315,7 @@ export default function AccountsListScreen() {
     );
   }
 
-  async function handleMonthChange(month: string) {
-    updateMonth(month);
-    updateMode('month');
-    updateCategoryFilters([]);
-    await Promise.all([
-      loadSummaries(accounts.map(a => a), 'month', month, []),
-      refreshCategoriesInPeriod('month', month, categories),
-    ]);
-  }
-
-  async function handleYearChange(year: string) {
-    updateYear(year);
-    updateMode('year');
-    updateCategoryFilters([]);
-    await Promise.all([
-      loadSummaries(accounts.map(a => a), 'year', year, []),
-      refreshCategoriesInPeriod('year', year, categories),
-    ]);
-  }
-
-  async function handleCategoryFilterChange(ids: string[]) {
-    updateCategoryFilters(ids);
-    const mode   = filterModeRef.current;
-    const period = mode === 'year' ? selectedYearRef.current : selectedMonthRef.current;
-    await loadSummaries(accounts.map(a => a), mode, period, ids);
-  }
-
+  // ── early return ──────────────────────────────────────────────────────────
   if (loading) {
     return (
       <ImageBackground
@@ -252,6 +363,9 @@ export default function AccountsListScreen() {
           ]}
           ListHeaderComponent={hasAccounts ? (
             <>
+              {racheyMoment && (
+                <RacheyBanner moment={racheyMoment} onDismiss={() => setRacheyMoment(null)} />
+              )}
               {/* Date + category picker row */}
               {(months.length > 0 || years.length > 0) && (
                 <View style={styles.pickerRow}>
@@ -264,7 +378,8 @@ export default function AccountsListScreen() {
                     onChangeMonth={handleMonthChange}
                     onChangeYear={handleYearChange}
                   />
-                  {categoriesInPeriod.length > 0 && (
+                  <ActivityBudgetToggle value={viewMode} onChange={handleToggleViewMode} />
+                  {viewMode === 'activity' && categoriesInPeriod.length > 0 && (
                     <CategoryPicker
                       categories={categoriesInPeriod}
                       selected={categoryFilters}
@@ -285,54 +400,63 @@ export default function AccountsListScreen() {
                     </View>
                     <Text style={styles.chevron}>›</Text>
                   </View>
-                  {allSummary && (
+                  {viewMode === 'budget' && allAccountsBudgetSummary ? (
+                    <BudgetVarianceSummary summary={allAccountsBudgetSummary} />
+                  ) : viewMode === 'activity' && allSummary ? (
                     <SummaryBar
                       incomeCents={allSummary.income_cents}
                       expenseCents={allSummary.expense_cents}
                       netCents={allSummary.net_cents}
                     />
-                  )}
+                  ) : null}
                 </View>
               </TouchableOpacity>
             </>
           ) : null}
-          renderItem={({ item }) => (
-            <TouchableOpacity
-              onPress={() => router.push(`/account/${item.id}`)}
-              activeOpacity={0.7}
-            >
-              <View style={styles.accountCard}>
-                <View style={[
-                  styles.accountAccent,
-                  { backgroundColor: accountColor[item.type] },
-                ]} />
-                <View style={styles.accountCardInner}>
-                  <View style={styles.accountCardTop}>
-                    <View style={styles.accountInfo}>
-                      <Text style={styles.accountName}>{item.name}</Text>
-                      <Text style={styles.accountType}>
-                        {item.type === 'checking' ? 'Checking' : 'Credit Card'}
-                      </Text>
-                      {item.summary.last_imported_at && (
-                        <Text style={styles.lastImport}>
-                          Last import: {new Date(item.summary.last_imported_at).toLocaleDateString()}
+          renderItem={({ item }) => {
+            const budgetSummary = budgetSummaryByAccount.get(item.id);
+            return (
+              <TouchableOpacity
+                onPress={() => router.push(`/account/${item.id}`)}
+                activeOpacity={0.7}
+              >
+                <View style={styles.accountCard}>
+                  <View style={[
+                    styles.accountAccent,
+                    { backgroundColor: accountColor[item.type] },
+                  ]} />
+                  <View style={styles.accountCardInner}>
+                    <View style={styles.accountCardTop}>
+                      <View style={styles.accountInfo}>
+                        <Text style={styles.accountName}>{item.name}</Text>
+                        <Text style={styles.accountType}>
+                          {item.type === 'checking' ? 'Checking' : 'Credit Card'}
                         </Text>
-                      )}
+                        {item.summary.last_imported_at && (
+                          <Text style={styles.lastImport}>
+                            Last import: {new Date(item.summary.last_imported_at).toLocaleDateString()}
+                          </Text>
+                        )}
+                      </View>
+                      <Text style={styles.chevron}>›</Text>
                     </View>
-                    <Text style={styles.chevron}>›</Text>
+                    {viewMode === 'budget' && budgetSummary ? (
+                      <BudgetVarianceSummary summary={budgetSummary} />
+                    ) : (
+                      <SummaryBar
+                        incomeCents={item.summary.income_cents}
+                        expenseCents={item.summary.expense_cents}
+                        netCents={item.summary.net_cents}
+                      />
+                    )}
                   </View>
-                  <SummaryBar
-                    incomeCents={item.summary.income_cents}
-                    expenseCents={item.summary.expense_cents}
-                    netCents={item.summary.net_cents}
-                  />
                 </View>
-              </View>
-            </TouchableOpacity>
-          )}
+              </TouchableOpacity>
+            );
+          }}
           ListEmptyComponent={
             <View style={styles.emptyState}>
-              <Sloth sloth="laptop" size={140} />
+              <Sloth sloth="dreaming" size={140} />
               <Text style={styles.emptyTitle}>Hi, I'm Rachey!</Text>
               <Text style={styles.emptyBody}>
                 I'll help you track your spending — add your first account and we'll go at our own pace.
@@ -375,10 +499,10 @@ const styles = StyleSheet.create({
   list:      { padding: spacing.md, gap: spacing.md },
   listEmpty: { flex: 1 },
   pickerRow: {
-    flexDirection: 'row',
-    alignItems:    'center',
+    flexDirection:  'row',
+    alignItems:     'center',
     justifyContent: 'space-between',
-    gap: spacing.sm,
+    gap:            spacing.sm,
   },
 
   allCard: {

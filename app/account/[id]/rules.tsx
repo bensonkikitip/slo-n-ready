@@ -15,6 +15,7 @@ import {
 import { autoApplyRulesForAccount } from '../../../src/domain/rules-engine';
 import { CATEGORY_COLORS } from '../../../src/domain/category-colors';
 import { Sloth } from '../../../src/components/Sloth';
+import { RacheyBanner } from '../../../src/components/RacheyBanner';
 import { colors, font, spacing, radius } from '../../../src/theme';
 import * as Crypto from 'expo-crypto';
 
@@ -73,6 +74,7 @@ export default function AccountRulesScreen() {
   const [rules,         setRules]         = useState<RuleWithCategory[]>([]);
   const [categories,    setCategories]    = useState<Category[]>([]);
   const [loading,       setLoading]       = useState(true);
+  const [racheyMoment,  setRacheyMoment]  = useState<'firstRule' | null>(null);
 
   // Rule form sheet
   const [sheetOpen,     setSheetOpen]     = useState(false);
@@ -233,6 +235,7 @@ export default function AccountRulesScreen() {
         await reloadRules();
         closeSheet();
       } else {
+        const isFirstRule = rules.length === 0 && !fromPrefill.current;
         const maxPriority = rules.length > 0 ? Math.max(...rules.map(r => r.priority)) : 0;
         await insertRule({
           id: Crypto.randomUUID(),
@@ -245,6 +248,7 @@ export default function AccountRulesScreen() {
           priority: maxPriority + 1,
         });
         await reloadRules();
+        if (isFirstRule) setRacheyMoment('firstRule');
         const navigateBack = fromPrefill.current;
         // Close sheet without triggering back-navigation yet — alert comes first
         fromPrefill.current = false;
@@ -324,6 +328,9 @@ export default function AccountRulesScreen() {
         }}
       />
       <View style={[styles.container, { paddingBottom: insets.bottom }]}>
+        {racheyMoment && (
+          <RacheyBanner moment={racheyMoment} onDismiss={() => setRacheyMoment(null)} />
+        )}
         <FlatList
           data={rules}
           keyExtractor={r => r.id}
@@ -392,10 +399,10 @@ export default function AccountRulesScreen() {
           )}
           ListEmptyComponent={
             <View style={styles.emptyState}>
-              <Sloth sloth="meditating" size={120} />
+              <Sloth sloth="books" size={120} />
               <Text style={styles.emptyTitle}>No rules yet</Text>
               <Text style={styles.emptyBody}>
-                Tap "Add" to create a rule. I'll use it to automatically categorize transactions when you import.
+                Knowing where it goes is half the battle. Tap "Add" to create a rule and I'll sort your transactions on import.
               </Text>
             </View>
           }

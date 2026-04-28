@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity,
   StyleSheet, ActivityIndicator,
@@ -7,19 +7,27 @@ import { useRouter, useFocusEffect, Stack } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Category, getAllCategories } from '../src/db/queries';
 import { Sloth } from '../src/components/Sloth';
+import { RacheyBanner } from '../src/components/RacheyBanner';
 import { colors, font, spacing, radius } from '../src/theme';
 
 export default function CategoriesScreen() {
   const router  = useRouter();
   const insets  = useSafeAreaInsets();
-  const [categories, setCategories] = useState<Category[]>([]);
-  const [loading,    setLoading]    = useState(true);
+  const [categories,   setCategories]   = useState<Category[]>([]);
+  const [loading,      setLoading]      = useState(true);
+  const [racheyMoment, setRacheyMoment] = useState<'firstCategory' | null>(null);
+  const prevCount = useRef(-1);
 
   useFocusEffect(useCallback(() => {
     let active = true;
     (async () => {
       const cats = await getAllCategories();
-      if (active) { setCategories(cats); setLoading(false); }
+      if (!active) return;
+      const isFirst = prevCount.current === 0 && cats.length === 1;
+      prevCount.current = cats.length;
+      setCategories(cats);
+      setLoading(false);
+      if (isFirst) setRacheyMoment('firstCategory');
     })();
     return () => { active = false; };
   }, []));
@@ -45,6 +53,9 @@ export default function CategoriesScreen() {
         }}
       />
       <View style={[styles.container, { paddingBottom: insets.bottom }]}>
+        {racheyMoment && (
+          <RacheyBanner moment={racheyMoment} onDismiss={() => setRacheyMoment(null)} />
+        )}
         <FlatList
           data={categories}
           keyExtractor={c => c.id}
@@ -62,10 +73,10 @@ export default function CategoriesScreen() {
           )}
           ListEmptyComponent={
             <View style={styles.emptyState}>
-              <Sloth sloth="meditating" size={120} />
+              <Sloth sloth="writing" size={120} />
               <Text style={styles.emptyTitle}>No categories yet</Text>
               <Text style={styles.emptyBody}>
-                Tap "New" to create a category, then add rules to your accounts so I can sort your transactions automatically.
+                Knowing where it goes is half the battle. Tap "New" to create your first category.
               </Text>
             </View>
           }

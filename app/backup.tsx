@@ -12,19 +12,22 @@ import {
   restoreFromData, BackupInfo, BACKUP_PATH,
 } from '../src/db/backup';
 import { Sloth } from '../src/components/Sloth';
+import { RacheyBanner } from '../src/components/RacheyBanner';
 import { colors, font, spacing, radius } from '../src/theme';
 
 export default function BackupScreen() {
   const insets = useSafeAreaInsets();
-  const [info,    setInfo]    = useState<BackupInfo | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [working, setWorking] = useState(false);
+  const [info,         setInfo]         = useState<BackupInfo | null>(null);
+  const [loading,      setLoading]      = useState(true);
+  const [working,      setWorking]      = useState(false);
+  const [racheyMoment, setRacheyMoment] = useState<'firstBackup' | 'recurringBackup' | null>(null);
 
   useFocusEffect(useCallback(() => {
     getBackupInfo().then(i => { setInfo(i); setLoading(false); });
   }, []));
 
   async function handleExport() {
+    const isFirst = !info?.exists;
     setWorking(true);
     try {
       // Refresh backup before sharing so it's always up-to-date
@@ -42,6 +45,7 @@ export default function BackupScreen() {
         dialogTitle: 'Export Slo N Ready Backup',
         UTI:         'public.json',
       });
+      setRacheyMoment(isFirst ? 'firstBackup' : 'recurringBackup');
     } catch (e: any) {
       Alert.alert('Export failed', e.message ?? 'Unknown error');
     } finally {
@@ -108,6 +112,10 @@ export default function BackupScreen() {
         <View style={styles.hero}>
           <Sloth sloth="piggyBank" size={110} />
         </View>
+
+        {racheyMoment && (
+          <RacheyBanner moment={racheyMoment} onDismiss={() => setRacheyMoment(null)} />
+        )}
 
         {/* Status card */}
         <Text style={styles.sectionLabel}>BACKUP STATUS</Text>

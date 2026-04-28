@@ -834,3 +834,60 @@ export async function getActualsByCategoryMonth(
     accountId, year,
   );
 }
+
+// Cross-account budget rollup summed by (category, month) for a year.
+export async function getBudgetsForAllAccountsYear(
+  year: string,
+): Promise<Array<{ category_id: string; month: string; amount_cents: number }>> {
+  const db = await getDb();
+  return db.getAllAsync<{ category_id: string; month: string; amount_cents: number }>(
+    `SELECT category_id, month, SUM(amount_cents) AS amount_cents
+     FROM budgets
+     WHERE month >= ? AND month <= ?
+     GROUP BY category_id, month`,
+    `${year}-01`, `${year}-12`,
+  );
+}
+
+// Cross-account actuals by (category, month) for a year.
+export async function getActualsByCategoryMonthAllAccounts(
+  year: string,
+): Promise<Array<{ category_id: string; month: string; total_cents: number }>> {
+  const db = await getDb();
+  return db.getAllAsync<{ category_id: string; month: string; total_cents: number }>(
+    `SELECT category_id, substr(date, 1, 7) AS month, SUM(amount_cents) AS total_cents
+     FROM transactions
+     WHERE dropped_at IS NULL AND category_id IS NOT NULL
+       AND substr(date, 1, 4) = ?
+     GROUP BY category_id, month`,
+    year,
+  );
+}
+
+// All budget rows for a year across all accounts, keyed per-account.
+// Caller groups by account_id client-side to avoid N round-trips on the home screen.
+export async function getBudgetsForAllAccountsYearByAccount(
+  year: string,
+): Promise<Budget[]> {
+  const db = await getDb();
+  return db.getAllAsync<Budget>(
+    `SELECT * FROM budgets WHERE month >= ? AND month <= ?`,
+    `${year}-01`, `${year}-12`,
+  );
+}
+
+// All actuals for a year across all accounts, keyed per-account.
+// Caller groups by account_id client-side to avoid N round-trips on the home screen.
+export async function getActualsByCategoryMonthAllAccountsByAccount(
+  year: string,
+): Promise<Array<{ account_id: string; category_id: string; month: string; total_cents: number }>> {
+  const db = await getDb();
+  return db.getAllAsync<{ account_id: string; category_id: string; month: string; total_cents: number }>(
+    `SELECT account_id, category_id, substr(date, 1, 7) AS month, SUM(amount_cents) AS total_cents
+     FROM transactions
+     WHERE dropped_at IS NULL AND category_id IS NOT NULL
+       AND substr(date, 1, 4) = ?
+     GROUP BY account_id, category_id, month`,
+    year,
+  );
+}
