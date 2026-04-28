@@ -1,7 +1,7 @@
 import * as SQLite from 'expo-sqlite';
 import * as FileSystem from 'expo-file-system/legacy';
 
-const LATEST_DB_VERSION = 6;
+const LATEST_DB_VERSION = 7;
 
 // Written before any migration runs so the user can always roll back.
 // Uses the same path and format as writeBackup() in backup.ts.
@@ -206,6 +206,24 @@ export async function getDb(): Promise<SQLite.SQLiteDatabase> {
     } finally {
       await db.execAsync('PRAGMA foreign_keys = ON');
     }
+  }
+
+  if (version < 7) {
+    // Add multi-condition support: logic (AND/OR) and conditions (JSON array)
+    try { await db.execAsync(`ALTER TABLE rules ADD COLUMN logic TEXT NOT NULL DEFAULT 'AND'`); } catch {}
+    try { await db.execAsync(`ALTER TABLE rules ADD COLUMN conditions TEXT NOT NULL DEFAULT '[]'`); } catch {}
+    // Backfill existing single-condition rules into the new conditions column
+    const existing = await db.getAllAsync<{ id: string; match_type: string; match_text: string }>(
+      `SELECT id, match_type, match_text FROM rules WHERE conditions = '[]' OR conditions IS NULL`,
+    );
+    for (const r of existing) {
+      await db.runAsync(
+        `UPDATE rules SET conditions = ? WHERE id = ?`,
+        JSON.stringify([{ match_type: r.match_type, match_text: r.match_text }]),
+        r.id,
+      );
+    }
+    await db.execAsync('PRAGMA user_version = 7');
   }
 
   _db = db;

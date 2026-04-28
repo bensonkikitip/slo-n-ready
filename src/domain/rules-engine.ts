@@ -1,9 +1,28 @@
-import { Rule, getAllAccounts, getRulesForAccount, getUncategorizedTransactionsForAccount, bulkSetTransactionCategories } from '../db/queries';
+import { Rule, RuleCondition, MatchType, getAllAccounts, getRulesForAccount, getUncategorizedTransactionsForAccount, bulkSetTransactionCategories } from '../db/queries';
 
 export interface RuleAssignment {
   transactionId: string;
   categoryId:    string;
   ruleId:        string;
+}
+
+function matchesCondition(
+  tx: { description: string; amount_cents: number },
+  cond: RuleCondition,
+): boolean {
+  const lower = (tx.description ?? '').toLowerCase();
+  const pattern = cond.match_text.toLowerCase();
+  const cents = parseInt(cond.match_text, 10);
+  switch (cond.match_type) {
+    case 'contains':    return lower.includes(pattern);
+    case 'starts_with': return lower.startsWith(pattern);
+    case 'ends_with':   return lower.endsWith(pattern);
+    case 'equals':      return lower === pattern;
+    case 'amount_eq':   return tx.amount_cents === cents;
+    case 'amount_lt':   return tx.amount_cents < cents;
+    case 'amount_gt':   return tx.amount_cents > cents;
+    default:            return false;
+  }
 }
 
 export function applyRulesToTransactions(
@@ -15,21 +34,15 @@ export function applyRulesToTransactions(
   for (const tx of transactions) {
     if (tx.category_set_manually) continue;
 
-    const lower = (tx.description ?? '').toLowerCase();
     for (const rule of rules) {
-      const pattern = rule.match_text.toLowerCase();
-      if (!pattern) continue;
-      let matched = false;
-      const ruleAmountCents = parseInt(rule.match_text, 10);
-      switch (rule.match_type) {
-        case 'contains':    matched = lower.includes(pattern);              break;
-        case 'starts_with': matched = lower.startsWith(pattern);            break;
-        case 'ends_with':   matched = lower.endsWith(pattern);              break;
-        case 'equals':      matched = lower === pattern;                    break;
-        case 'amount_eq':   matched = tx.amount_cents === ruleAmountCents;  break;
-        case 'amount_lt':   matched = tx.amount_cents < ruleAmountCents;    break;
-        case 'amount_gt':   matched = tx.amount_cents > ruleAmountCents;    break;
-      }
+      const conds = rule.conditions.length > 0
+        ? rule.conditions
+        : [{ match_type: rule.match_type, match_text: rule.match_text }];
+
+      const matched = rule.logic === 'OR'
+        ? conds.some(c  => matchesCondition(tx, c))
+        : conds.every(c => matchesCondition(tx, c));
+
       if (matched) {
         assignments.push({ transactionId: tx.id, categoryId: rule.category_id, ruleId: rule.id });
         break;
