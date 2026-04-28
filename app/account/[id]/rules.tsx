@@ -8,11 +8,14 @@ import { useLocalSearchParams, useFocusEffect, Stack, useRouter } from 'expo-rou
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   Account, Rule, RuleCondition, Category, MatchType, Transaction,
+  FoundationalRuleSetting,
   getRulesForAccount, getAllCategories, getAllAccounts,
   insertRule, updateRule, deleteRule, reorderRules, insertCategory,
   updateAccountSuggestRules,
   getTransactions, getRuleAppliedCounts,
+  getFoundationalRuleSettingsForAccount, upsertFoundationalRuleSetting,
 } from '../../../src/db/queries';
+import { FOUNDATIONAL_RULES, FoundationalRule } from '../../../src/domain/foundational-rules';
 import { autoApplyRulesForAccount, txMatchesRulePattern } from '../../../src/domain/rules-engine';
 import { CATEGORY_COLORS } from '../../../src/domain/category-colors';
 import { Sloth } from '../../../src/components/Sloth';
@@ -80,6 +83,11 @@ export default function AccountRulesScreen() {
   const [categorizedTxs,   setCategorizedTxs]   = useState<Transaction[]>([]);
   const [appliedCounts,    setAppliedCounts]     = useState<Record<string, number>>({});
 
+  // Foundational rule settings (per-account): keyed by rule_id
+  const [foundationalSettings, setFoundationalSettings] = useState<Record<string, FoundationalRuleSetting>>({});
+  // Which foundational rule's category we're picking (null = picker closed)
+  const [foundationalCatPicker, setFoundationalCatPicker] = useState<string | null>(null);
+
   // Rule form sheet
   const [sheetOpen,     setSheetOpen]     = useState(false);
   const [editingRuleId, setEditingRuleId] = useState<string | null>(null);
@@ -102,12 +110,13 @@ export default function AccountRulesScreen() {
   useFocusEffect(useCallback(() => {
     let active = true;
     (async () => {
-      const [accts, rawRules, cats, allTxs, counts] = await Promise.all([
+      const [accts, rawRules, cats, allTxs, counts, foundSettings] = await Promise.all([
         getAllAccounts(),
         getRulesForAccount(id),
         getAllCategories(),
         getTransactions(id),
         getRuleAppliedCounts(id),
+        getFoundationalRuleSettingsForAccount(id),
       ]);
       if (!active) return;
       setAccount(accts.find(a => a.id === id) ?? null);
@@ -123,6 +132,7 @@ export default function AccountRulesScreen() {
       setUncategorizedTxs(nonDropped.filter(tx => tx.category_id === null));
       setCategorizedTxs(nonDropped.filter(tx => tx.category_id !== null));
       setAppliedCounts(counts);
+      setFoundationalSettings(Object.fromEntries(foundSettings.map(s => [s.rule_id, s])));
       setLoading(false);
     })();
     return () => { active = false; };
@@ -316,6 +326,35 @@ export default function AccountRulesScreen() {
     await reorderRules(newRules.map(r => r.id));
   }
 
+  // --- Foundational rule handlers ---
+
+  async function handleFoundationalToggle(ruleId: string, enabled: boolean) {
+    const setting = foundationalSettings[ruleId];
+    // INVARIANT: cannot enable without a category mapping
+    if (enabled && !setting?.category_id) return;
+    const newEnabled = enabled ? 1 : 0;
+    await upsertFoundationalRuleSetting(id, ruleId, setting?.category_id ?? null, newEnabled);
+    setFoundationalSettings(prev => ({
+      ...prev,
+      [ruleId]: { ...(prev[ruleId] ?? { account_id: id, rule_id: ruleId, created_at: Date.now() }),
+                  category_id: setting?.category_id ?? null, enabled: newEnabled },
+    }));
+  }
+
+  async function handleFoundationalCategorySelect(ruleId: string, catId: string | null) {
+    const setting = foundationalSettings[ruleId];
+    // INVARIANT: clearing category automatically disables the rule
+    const newEnabled = catId === null ? 0 : (setting?.enabled ?? 1);
+    await upsertFoundationalRuleSetting(id, ruleId, catId, newEnabled);
+    setFoundationalSettings(prev => ({
+      ...prev,
+      [ruleId]: { account_id: id, rule_id: ruleId,
+                  category_id: catId, enabled: newEnabled,
+                  created_at: prev[ruleId]?.created_at ?? Date.now() },
+    }));
+    setFoundationalCatPicker(null);
+  }
+
   const selectedCat = categories.find(c => c.id === categoryId);
 
   const draftRule = {
@@ -433,8 +472,132 @@ export default function AccountRulesScreen() {
               </Text>
             </View>
           }
+          ListFooterComponent={(
+            <View style={styles.foundationalSection}>
+              <View style={styles.foundationalHeader}>
+                <Text style={styles.foundationalTitle}>Built-in: Slo's foundational rules</Text>
+                <Text style={styles.foundationalSubtitle}>
+                  Always run last — your rules above take priority. Assign a category to turn one on.
+                </Text>
+              </View>
+              {FOUNDATIONAL_RULES.map((fr, index) => {
+                const setting  = foundationalSettings[fr.id];
+                const catId    = setting?.category_id ?? null;
+                const enabled  = (setting?.enabled ?? 0) === 1;
+                const canToggle = catId !== null;
+                const cat      = categories.find(c => c.id === catId);
+                const appliedCount = appliedCounts[`foundational:${fr.id}`] ?? 0;
+                return (
+                  <View key={fr.id} style={[styles.foundationalRow, index > 0 && styles.rowBorder]}>
+                    {/* Emoji + name + description */}
+                    <View style={styles.foundationalInfo}>
+                      <View style={styles.foundationalNameRow}>
+                        <Text style={styles.foundationalEmoji}>{fr.emoji}</Text>
+                        <Text style={styles.foundationalName}>{fr.name}</Text>
+                      </View>
+                      <Text style={styles.foundationalDesc}>{fr.description}</Text>
+
+                      {/* Category mapping */}
+                      <TouchableOpacity
+                        style={styles.foundationalCatPicker}
+                        onPress={() => setFoundationalCatPicker(fr.id)}
+                        activeOpacity={0.7}
+                      >
+                        {cat ? (
+                          <View style={styles.foundationalCatChosen}>
+                            <View style={[styles.catDot, { backgroundColor: cat.color }]} />
+                            <Text style={styles.foundationalCatName}>{cat.name}</Text>
+                          </View>
+                        ) : (
+                          <Text style={styles.foundationalCatEmpty}>Choose category… ▼</Text>
+                        )}
+                      </TouchableOpacity>
+
+                      {/* Applied count */}
+                      {appliedCount > 0 && (
+                        <Text style={styles.foundationalApplied}>
+                          Applied {appliedCount} time{appliedCount !== 1 ? 's' : ''}
+                        </Text>
+                      )}
+
+                      {/* Hint when no category selected */}
+                      {!canToggle && (
+                        <Text style={styles.foundationalHint}>Pick a category to turn this on.</Text>
+                      )}
+                    </View>
+
+                    {/* Toggle */}
+                    <Switch
+                      value={enabled && canToggle}
+                      onValueChange={(val) => handleFoundationalToggle(fr.id, val)}
+                      disabled={!canToggle}
+                      trackColor={{ false: colors.border, true: colors.primary }}
+                      thumbColor={colors.surface}
+                    />
+                  </View>
+                );
+              })}
+            </View>
+          )}
         />
       </View>
+
+      {/* Foundational rule category picker */}
+      <Modal
+        visible={foundationalCatPicker !== null}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setFoundationalCatPicker(null)}
+      >
+        <TouchableOpacity
+          style={styles.backdrop}
+          activeOpacity={1}
+          onPress={() => setFoundationalCatPicker(null)}
+        />
+        <SafeAreaView style={styles.sheet}>
+          <View style={styles.sheetHandle} />
+          <Text style={[styles.sheetTitle, { marginHorizontal: spacing.md }]}>Choose category</Text>
+          <ScrollView keyboardShouldPersistTaps="handled">
+            <TouchableOpacity
+              style={[styles.catDropdownRow, { paddingHorizontal: spacing.md }]}
+              onPress={() => foundationalCatPicker && handleFoundationalCategorySelect(foundationalCatPicker, null)}
+              activeOpacity={0.7}
+            >
+              <Text style={[styles.catRowLabel, { color: colors.textTertiary }]}>— Remove mapping</Text>
+            </TouchableOpacity>
+            {categories.map((cat) => {
+              const currentCatId = foundationalCatPicker
+                ? foundationalSettings[foundationalCatPicker]?.category_id ?? null
+                : null;
+              const isSelected = cat.id === currentCatId;
+              return (
+                <TouchableOpacity
+                  key={cat.id}
+                  style={[
+                    styles.catDropdownRow,
+                    styles.catRowBorder,
+                    { paddingHorizontal: spacing.md },
+                    isSelected && styles.catRowSelected,
+                  ]}
+                  onPress={() => foundationalCatPicker && handleFoundationalCategorySelect(foundationalCatPicker, cat.id)}
+                  activeOpacity={0.7}
+                >
+                  <View style={[styles.catRowDot, { backgroundColor: cat.color }]} />
+                  <Text style={styles.catRowLabel}>{cat.name}</Text>
+                  {isSelected && <Text style={styles.checkmark}>✓</Text>}
+                </TouchableOpacity>
+              );
+            })}
+            {categories.length === 0 && (
+              <View style={{ padding: spacing.lg, alignItems: 'center' }}>
+                <Text style={{ fontFamily: font.regular, fontSize: 14, color: colors.textTertiary }}>
+                  No categories yet. Create one first.
+                </Text>
+              </View>
+            )}
+          </ScrollView>
+        </SafeAreaView>
+      </Modal>
 
       {/* Rule form sheet */}
       <Modal visible={sheetOpen} transparent animationType="slide" onRequestClose={closeSheet}>
@@ -858,4 +1021,58 @@ const styles = StyleSheet.create({
   liveMatchRow:     { paddingVertical: spacing.sm, marginBottom: spacing.sm, alignItems: 'center' },
   liveMatchText:    { fontFamily: font.semiBold, fontSize: 14, color: colors.primary },
   liveMatchMuted:   { color: colors.textTertiary },
+
+  // Foundational rules section
+  foundationalSection: {
+    marginTop: spacing.lg,
+    borderTopWidth: 1,
+    borderTopColor: colors.separator,
+  },
+  foundationalHeader: {
+    backgroundColor: colors.surfaceAlt,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.separator,
+  },
+  foundationalTitle: {
+    fontFamily: font.bold,
+    fontSize: 13,
+    color: colors.textSecondary,
+    letterSpacing: 0.4,
+    textTransform: 'uppercase',
+  },
+  foundationalSubtitle: {
+    fontFamily: font.regular,
+    fontSize: 12,
+    color: colors.textTertiary,
+    marginTop: 2,
+    lineHeight: 16,
+  },
+  foundationalRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: spacing.md,
+    paddingVertical: 12,
+    backgroundColor: colors.surfaceAlt,
+    gap: spacing.sm,
+  },
+  foundationalInfo:     { flex: 1 },
+  foundationalNameRow:  { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 2 },
+  foundationalEmoji:    { fontSize: 16 },
+  foundationalName:     { fontFamily: font.semiBold, fontSize: 15, color: colors.text },
+  foundationalDesc:     { fontFamily: font.regular, fontSize: 13, color: colors.textSecondary, marginBottom: 6 },
+  foundationalCatPicker: {
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: colors.surface,
+    borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border,
+    paddingHorizontal: spacing.sm, paddingVertical: 6,
+    alignSelf: 'flex-start', marginBottom: 4,
+  },
+  foundationalCatChosen: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  foundationalCatName:   { fontFamily: font.semiBold, fontSize: 13, color: colors.text },
+  foundationalCatEmpty:  { fontFamily: font.regular, fontSize: 13, color: colors.textTertiary },
+  foundationalApplied:   { fontFamily: font.regular, fontSize: 12, color: colors.textTertiary, marginTop: 2 },
+  foundationalHint:      { fontFamily: font.regular, fontSize: 12, color: colors.textTertiary, fontStyle: 'italic', marginTop: 2 },
+  catDot: { width: 10, height: 10, borderRadius: radius.full },
 });
