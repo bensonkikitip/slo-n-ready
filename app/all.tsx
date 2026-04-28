@@ -1,5 +1,5 @@
 import React, { useCallback, useMemo, useRef, useState } from 'react';
-import { View, FlatList, Text, StyleSheet, ActivityIndicator, Alert } from 'react-native';
+import { View, FlatList, Text, StyleSheet, ActivityIndicator, Alert, TouchableOpacity, TextInput } from 'react-native';
 import { useFocusEffect, Stack, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
@@ -17,7 +17,8 @@ import { TransactionRow } from '../src/components/TransactionRow';
 import { CategoryPickerSheet } from '../src/components/CategoryPickerSheet';
 import { Sloth } from '../src/components/Sloth';
 import { writeBackup } from '../src/db/backup';
-import { colors, font, spacing } from '../src/theme';
+import { colors, font, spacing, radius } from '../src/theme';
+import { centsToDollars } from '../src/domain/money';
 
 export default function AllAccountsScreen() {
   const insets  = useSafeAreaInsets();
@@ -34,6 +35,8 @@ export default function AllAccountsScreen() {
   const [categoryFilters,       setCategoryFilters]       = useState<string[]>([]);
   const [loading,               setLoading]               = useState(true);
   const [hasAnyData,            setHasAnyData]            = useState(false);
+  const [searchText,            setSearchText]            = useState('');
+  const [breakdownOpen,         setBreakdownOpen]         = useState(false);
 
   const selectedMonthRef = useRef('');
   const selectedYearRef  = useRef('');
@@ -88,6 +91,7 @@ export default function AllAccountsScreen() {
     updateMonth(month);
     updateMode('month');
     setCategoryFilters([]);
+    setSearchText('');
     setTransactions(await getAllTransactionsForMonth(month));
   }
 
@@ -95,6 +99,7 @@ export default function AllAccountsScreen() {
     updateYear(year);
     updateMode('year');
     setCategoryFilters([]);
+    setSearchText('');
     setTransactions(await getAllTransactionsForYear(year));
   }
 
@@ -129,14 +134,37 @@ export default function AllAccountsScreen() {
     );
   }, [transactions, categoryFilters]);
 
+  const displayedTransactions = useMemo(() => {
+    const q = searchText.trim().toLowerCase();
+    if (!q) return filteredTransactions;
+    return filteredTransactions.filter(t => t.description.toLowerCase().includes(q));
+  }, [filteredTransactions, searchText]);
+
   const monthSummary = useMemo(() => {
-    const active = filteredTransactions.filter(t => t.dropped_at === null);
+    const active = displayedTransactions.filter(t => t.dropped_at === null);
     return {
       income_cents:  active.filter(t => t.amount_cents > 0).reduce((s, t) => s + t.amount_cents, 0),
       expense_cents: active.filter(t => t.amount_cents < 0).reduce((s, t) => s + t.amount_cents, 0),
       net_cents:     active.reduce((s, t) => s + t.amount_cents, 0),
     };
-  }, [filteredTransactions]);
+  }, [displayedTransactions]);
+
+  const categoryTotals = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const t of transactions) {
+      if (t.dropped_at !== null) continue;
+      const key = t.category_id ?? '__none__';
+      map.set(key, (map.get(key) ?? 0) + t.amount_cents);
+    }
+    return Array.from(map.entries())
+      .filter(([, total]) => total !== 0)
+      .map(([key, total]) => {
+        if (key === '__none__') return { key, name: 'Uncategorized', color: null, total };
+        const cat = categoryMap[key];
+        return { key, name: cat?.name ?? 'Unknown', color: cat?.color ?? null, total };
+      })
+      .sort((a, b) => Math.abs(b.total) - Math.abs(a.total));
+  }, [transactions, categoryMap]);
 
   async function handleCategorySelect(categoryId: string | null) {
     if (!selectedTransactionId) return;
@@ -206,6 +234,54 @@ export default function AllAccountsScreen() {
           </View>
         )}
 
+        {categoryTotals.length > 0 && (
+          <View style={styles.breakdown}>
+            <TouchableOpacity
+              style={styles.breakdownHeader}
+              onPress={() => setBreakdownOpen(o => !o)}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.breakdownTitle}>Totals by Category</Text>
+              <Text style={styles.breakdownChevron}>{breakdownOpen ? '▲' : '▼'}</Text>
+            </TouchableOpacity>
+
+            {breakdownOpen && categoryTotals.map(row => (
+              <TouchableOpacity
+                key={row.key}
+                style={styles.breakdownRow}
+                activeOpacity={0.7}
+                onPress={() => { setCategoryFilters([row.key]); setBreakdownOpen(false); }}
+              >
+                {row.color
+                  ? <View style={[styles.breakdownDot, { backgroundColor: row.color }]} />
+                  : <View style={[styles.breakdownDot, styles.breakdownDotEmpty]} />
+                }
+                <Text style={styles.breakdownName} numberOfLines={1}>{row.name}</Text>
+                <Text style={[styles.breakdownAmount, { color: row.total >= 0 ? colors.income : colors.text }]}>
+                  {centsToDollars(row.total)}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
+
+        {transactions.length > 0 && (
+          <View style={styles.searchBar}>
+            <Text style={styles.searchIcon}>⌕</Text>
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Search transactions…"
+              placeholderTextColor={colors.textTertiary}
+              value={searchText}
+              onChangeText={setSearchText}
+              clearButtonMode="while-editing"
+              autoCapitalize="none"
+              autoCorrect={false}
+              returnKeyType="search"
+            />
+          </View>
+        )}
+
         <SummaryBar
           incomeCents={monthSummary.income_cents}
           expenseCents={monthSummary.expense_cents}
@@ -213,7 +289,7 @@ export default function AllAccountsScreen() {
         />
 
         <FlatList
-          data={filteredTransactions}
+          data={displayedTransactions}
           keyExtractor={item => item.id}
           renderItem={({ item }) => (
             <TransactionRow
@@ -224,7 +300,7 @@ export default function AllAccountsScreen() {
             />
           )}
           contentContainerStyle={[
-            filteredTransactions.length === 0 && styles.emptyContainer,
+            displayedTransactions.length === 0 && styles.emptyContainer,
             { paddingBottom: insets.bottom + spacing.lg },
           ]}
           ListEmptyComponent={
@@ -238,6 +314,8 @@ export default function AllAccountsScreen() {
                   ? "Import a CSV from one of your accounts and I'll show everything together here."
                   : categoryFilters.length > 0
                   ? "No transactions match the selected categories."
+                  : searchText.trim()
+                  ? "No transactions match your search."
                   : "I don't see any transactions for this period — try a different one."}
               </Text>
             </View>
@@ -269,6 +347,78 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: colors.separator,
   },
+
+  breakdown: {
+    borderBottomWidth: 1,
+    borderBottomColor: colors.separator,
+    backgroundColor:   colors.surface,
+  },
+  breakdownHeader: {
+    flexDirection:     'row',
+    alignItems:        'center',
+    justifyContent:    'space-between',
+    paddingHorizontal: spacing.md,
+    paddingVertical:   11,
+  },
+  breakdownTitle: {
+    fontFamily: font.semiBold,
+    fontSize:   14,
+    color:      colors.textSecondary,
+    letterSpacing: 0.3,
+  },
+  breakdownChevron: {
+    fontSize: 10,
+    color:    colors.textTertiary,
+  },
+  breakdownRow: {
+    flexDirection:     'row',
+    alignItems:        'center',
+    paddingHorizontal: spacing.md,
+    paddingVertical:   9,
+    borderTopWidth:    1,
+    borderTopColor:    colors.separator,
+    gap:               spacing.sm,
+  },
+  breakdownDot: {
+    width: 10, height: 10, borderRadius: radius.full, flexShrink: 0,
+  },
+  breakdownDotEmpty: {
+    borderWidth: 1, borderColor: colors.border,
+  },
+  breakdownName: {
+    fontFamily: font.regular,
+    fontSize:   14,
+    color:      colors.text,
+    flex:       1,
+  },
+  breakdownAmount: {
+    fontFamily: font.semiBold,
+    fontSize:   14,
+  },
+
+  searchBar: {
+    flexDirection:     'row',
+    alignItems:        'center',
+    paddingHorizontal: spacing.md,
+    paddingVertical:   spacing.sm,
+    gap:               spacing.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.separator,
+    backgroundColor:   colors.surface,
+  },
+  searchIcon: {
+    fontSize:  19,
+    color:     colors.textTertiary,
+    marginTop: 1,
+  },
+  searchInput: {
+    flex:       1,
+    fontFamily: font.regular,
+    fontSize:   15,
+    color:      colors.text,
+    paddingVertical: 4,
+  },
+
   emptyContainer: { flex: 1 },
   emptyState: {
     flex: 1, alignItems: 'center', justifyContent: 'center',
