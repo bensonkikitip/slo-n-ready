@@ -317,15 +317,11 @@ export default function AccountDetailScreen() {
           </TouchableOpacity>
           <View style={styles.menuDivider} />
           <TouchableOpacity style={styles.menuItem} onPress={() => { setMenuOpen(false); router.push(`/account/${id}/edit`); }}>
-            <Text style={styles.menuItemText}>Edit</Text>
+            <Text style={styles.menuItemText}>Edit Account</Text>
           </TouchableOpacity>
           <View style={styles.menuDivider} />
           <TouchableOpacity style={styles.menuItem} onPress={() => { setMenuOpen(false); setBulkMode(true); }}>
-            <Text style={styles.menuItemText}>Bulk Edit</Text>
-          </TouchableOpacity>
-          <View style={styles.menuDivider} />
-          <TouchableOpacity style={styles.menuItem} onPress={() => { setMenuOpen(false); handleDelete(); }}>
-            <Text style={[styles.menuItemText, { color: colors.destructive }]}>Delete</Text>
+            <Text style={styles.menuItemText}>Bulk Categorize</Text>
           </TouchableOpacity>
         </View>
       </Modal>

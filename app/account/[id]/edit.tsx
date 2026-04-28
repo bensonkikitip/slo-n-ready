@@ -6,7 +6,7 @@ import {
 import { useRouter, useLocalSearchParams, Stack } from 'expo-router';
 import {
   Account, AccountType, CsvFormat,
-  getAllAccounts, getTransactions, updateAccount, parseColumnConfig,
+  getAllAccounts, getTransactions, updateAccount, deleteAccount, parseColumnConfig,
 } from '../../../src/db/queries';
 import { writeBackup } from '../../../src/db/backup';
 import { ColumnConfig, DEFAULT_CONFIGS, DateFormat, AmountStyle } from '../../../src/parsers/column-config';
@@ -354,6 +354,30 @@ export default function EditAccountScreen() {
         >
           <Text style={styles.saveButtonText}>{saving ? 'Saving…' : 'Save Changes'}</Text>
         </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.deleteButton}
+          onPress={() => {
+            Alert.alert(
+              'Delete Account',
+              'This will permanently delete this account and all its transactions. Cannot be undone.',
+              [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                  text: 'Delete', style: 'destructive',
+                  onPress: async () => {
+                    await deleteAccount(id);
+                    void writeBackup();
+                    router.replace('/');
+                  },
+                },
+              ],
+            );
+          }}
+          activeOpacity={0.7}
+        >
+          <Text style={styles.deleteButtonText}>Delete Account</Text>
+        </TouchableOpacity>
       </ScrollView>
     </>
   );
@@ -450,4 +474,15 @@ const styles = StyleSheet.create({
   },
   disabled:       { opacity: 0.6 },
   saveButtonText: { fontFamily: font.bold, fontSize: 17, color: colors.textOnColor },
+
+  deleteButton: {
+    paddingVertical: 14,
+    alignItems:      'center',
+    marginTop:       spacing.sm,
+  },
+  deleteButtonText: {
+    fontFamily: font.semiBold,
+    fontSize:   16,
+    color:      colors.destructive,
+  },
 });
