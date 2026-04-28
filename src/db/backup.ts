@@ -102,8 +102,9 @@ export async function restoreFromData(data: BackupData): Promise<void> {
 
     for (const r of (data.rules ?? [])) {
       await db.runAsync(
-        'INSERT OR REPLACE INTO rules (id, account_id, category_id, match_type, match_text, priority, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        'INSERT OR REPLACE INTO rules (id, account_id, category_id, match_type, match_text, priority, created_at, logic, conditions) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
         r.id, r.account_id, r.category_id, r.match_type, r.match_text, r.priority, r.created_at,
+        r.logic ?? 'AND', r.conditions ?? '[]',
       );
     }
 
