@@ -6,7 +6,7 @@
 
 **Database**: local SQLite file `budgetapp.db`, opened via `expo-sqlite`.
 **Foreign keys**: enabled (`PRAGMA foreign_keys = ON`). Cascading deletes are intentional.
-**Schema version**: tracked via `PRAGMA user_version`. Current = **9**.
+**Schema version**: tracked via `PRAGMA user_version`. Current = **10** (v4.0).
 
 ---
 
@@ -94,6 +94,8 @@ User-defined spend/income categories.
 | `id` | `TEXT PRIMARY KEY` | |
 | `name` | `TEXT NOT NULL` | |
 | `color` | `TEXT NOT NULL` | Hex like `#6FA882`. Picked from the 8-swatch palette in `src/domain/category-colors.ts`. |
+| `emoji` | `TEXT` | Nullable. A single emoji glyph chosen from the curated picker in `app/category/new.tsx` (`CATEGORY_EMOJIS`). Added in migration v10. |
+| `description` | `TEXT` | Nullable. Short user-written description. Added in migration v10. |
 | `created_at` | `INTEGER NOT NULL` | |
 
 Deleting a category sets `transactions.category_id` and any rule references to NULL — but rules cascade-delete via the `rules.category_id` FK (see below), so rules are wiped when their category is deleted.
@@ -137,6 +139,48 @@ Monthly budget allocation per account+category.
 
 ---
 
+### `foundational_rule_settings`
+Per-account user state for built-in (foundational) rules. The rule **logic** lives entirely in code (`src/domain/foundational-rules.ts`); this table only records which rules each account has enabled and what category they map to.
+
+| Column | Type | Notes |
+|---|---|---|
+| `account_id` | `TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE` | |
+| `rule_id` | `TEXT NOT NULL` | Matches `FoundationalRule.id` (e.g. `"food-dining"`). No FK — the rule definitions live in code, not the DB. |
+| `category_id` | `TEXT REFERENCES categories(id) ON DELETE SET NULL` | Nullable. The user's chosen category for this rule. A rule with no `category_id` cannot fire (see gating invariant below). |
+| `enabled` | `INTEGER NOT NULL DEFAULT 1` | 1 = on, 0 = off. |
+| `created_at` | `INTEGER NOT NULL` | ms timestamp. |
+
+**Primary key**: `(account_id, rule_id)`.
+**Index**: `idx_foundational_settings_account` on `(account_id)`.
+
+**Toggle gating invariant** (enforced in three places):
+1. **DB query** (`getActiveFoundationalRulesAsRules`): `WHERE enabled = 1 AND category_id IS NOT NULL`.
+2. **UI**: the enable `Switch` is disabled when `category_id` is null.
+3. **Setter**: when a user clears a category mapping (`category_id → null`), `enabled` is automatically set to `0` in the same `upsertFoundationalRuleSetting` call.
+
+**Applied tracking**: when the engine fires a foundational rule it writes `applied_rule_id = 'foundational:<rule_id>'` (e.g. `'foundational:food-dining'`) on the transaction. The existing `getRuleAppliedCounts` query groups by `applied_rule_id`, so applied counts are available for free without schema changes.
+
+**Engine ordering contract**: `autoApplyRulesForAccount` always passes `[...userRules, ...foundationalRules]` to the first-match-wins engine. User rules always win. This comment is documented in `src/domain/rules-engine.ts` and covered by tests in `tests/domain/rules-engine.test.ts`.
+
+---
+
+### `app_preferences`
+Lightweight key/value store for app-level boolean flags and settings.
+
+| Column | Type | Notes |
+|---|---|---|
+| `key` | `TEXT PRIMARY KEY` | String key (e.g. `'v4_welcomed'`). |
+| `value` | `TEXT NOT NULL` | String value (e.g. `'true'`). |
+| `updated_at` | `INTEGER NOT NULL` | ms timestamp. |
+
+**v4.0 keys in use**:
+
+| Key | Values | Meaning |
+|---|---|---|
+| `v4_welcomed` | `'true'` / absent | Set after the one-time v4 welcome sheet is dismissed. `app/index.tsx` checks this on load; if absent and the user has accounts, `welcome-v4.tsx` is pushed. |
+
+---
+
 ## TypeScript interfaces
 
 Defined in [`src/db/queries.ts`](../src/db/queries.ts) (and `Budget` near the bottom). When you change a column, change the interface in the same edit.
@@ -159,7 +203,10 @@ interface Transaction   { id; account_id; date: string /*YYYY-MM-DD*/;
                           import_batch_id; created_at: number;
                           category_id: string|null; category_set_manually: number;
                           applied_rule_id: string|null; }
-interface Category      { id; name; color: string /*#hex*/; created_at: number; }
+interface Category      { id; name; color: string /*#hex*/;
+                          emoji: string|null;       // v4.0 — nullable
+                          description: string|null; // v4.0 — nullable
+                          created_at: number; }
 interface RuleCondition { match_type: MatchType; match_text: string; }
 interface Rule          { id; account_id; category_id;
                           match_type; match_text;            // legacy mirror of conditions[0]
@@ -170,6 +217,15 @@ interface Budget        { account_id; category_id; month: string /*YYYY-MM*/;
                           amount_cents: number; }
 interface AccountSummary{ income_cents; expense_cents; net_cents;
                           transaction_count; last_imported_at: number|null; }
+// v4.0 — new tables
+interface FoundationalRuleSetting {
+  account_id:  string;
+  rule_id:     string;  // matches FoundationalRule.id in src/domain/foundational-rules.ts
+  category_id: string|null;
+  enabled:     number;  // 0 or 1
+  created_at:  number;
+}
+interface AppPreference { key: string; value: string; updated_at: number; }
 ```
 
 `ColumnConfig` (in [`src/parsers/column-config.ts`](../src/parsers/column-config.ts)):
@@ -206,6 +262,7 @@ All migrations live in [`src/db/client.ts`](../src/db/client.ts) under `getDb()`
 | 7 | Multi-condition rules: adds `rules.logic` (`'AND'` default) and `rules.conditions` (JSON, `'[]'` default). Backfills existing single-condition rules into `conditions`. |
 | 8 | `accounts.suggest_rules` (default 1). |
 | 9 | Adds `budgets` table + `idx_budgets_account_month` index. |
+| 10 | Adds `categories.emoji` and `categories.description` (both nullable). Adds `foundational_rule_settings` table + `idx_foundational_settings_account`. Adds `app_preferences` table. |
 
 **Pre-migration backup**: before any pending migration runs, [`writePreMigrationBackup`](../src/db/client.ts) writes a snapshot of all known tables to `Documents/slo-n-ready-backup.json` so the user can roll back if a migration fails. Don't bypass this.
 
@@ -219,21 +276,24 @@ Backups are written automatically after CSV imports, account changes, and on dem
 
 ```ts
 interface BackupData {
-  version:        number;       // 1, 2, or 3 — see compatibility below
-  exported_at:    number;       // ms timestamp
-  accounts:       Account[];
-  import_batches: ImportBatch[];
-  transactions:   Transaction[];
-  categories:     Category[];   // present from v2
-  rules:          Rule[];       // present from v2
-  budgets:        Budget[];     // present from v3
+  version:                    number;       // 1, 2, 3, or 4 — see compatibility below
+  exported_at:                number;       // ms timestamp
+  accounts:                   Account[];
+  import_batches:             ImportBatch[];
+  transactions:               Transaction[];
+  categories:                 Category[];   // present from v2; emoji/description fields from v4
+  rules:                      Rule[];       // present from v2
+  budgets:                    Budget[];     // present from v3
+  foundational_rule_settings: FoundationalRuleSetting[]; // present from v4
+  app_preferences:            AppPreference[];            // present from v4
 }
 ```
 
-**Compatibility** (`readBackupFromPath` accepts v1, v2, v3):
+**Compatibility** (`readBackupFromPath` accepts v1–v4):
 - v1: pre-categories. `categories`/`rules`/`budgets` may be missing.
 - v2: includes categories + rules.
-- v3: adds `budgets`. **Current.**
+- v3: adds `budgets`.
+- v4: adds `foundational_rule_settings` and `app_preferences`; `categories` rows gain `emoji` and `description`. **Current.**
 
 `restoreFromData` deletes all rows in FK-safe order (children before parents), then re-inserts everything inside one transaction. Missing fields are backfilled with safe defaults (`suggest_rules ?? 1`, `dropped_at ?? null`, `conditions ?? '[]'`, etc.).
 
