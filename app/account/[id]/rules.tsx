@@ -7,12 +7,13 @@ import {
 import { useLocalSearchParams, useFocusEffect, Stack, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
-  Account, Rule, RuleCondition, Category, MatchType,
+  Account, Rule, RuleCondition, Category, MatchType, Transaction,
   getRulesForAccount, getAllCategories, getAllAccounts,
   insertRule, updateRule, deleteRule, reorderRules, insertCategory,
   updateAccountSuggestRules,
+  getTransactions, getRuleAppliedCounts,
 } from '../../../src/db/queries';
-import { autoApplyRulesForAccount } from '../../../src/domain/rules-engine';
+import { autoApplyRulesForAccount, txMatchesRulePattern } from '../../../src/domain/rules-engine';
 import { CATEGORY_COLORS } from '../../../src/domain/category-colors';
 import { Sloth } from '../../../src/components/Sloth';
 import { RacheyBanner } from '../../../src/components/RacheyBanner';
@@ -75,6 +76,9 @@ export default function AccountRulesScreen() {
   const [categories,    setCategories]    = useState<Category[]>([]);
   const [loading,       setLoading]       = useState(true);
   const [racheyMoment,  setRacheyMoment]  = useState<'firstRule' | null>(null);
+  const [uncategorizedTxs, setUncategorizedTxs] = useState<Transaction[]>([]);
+  const [categorizedTxs,   setCategorizedTxs]   = useState<Transaction[]>([]);
+  const [appliedCounts,    setAppliedCounts]     = useState<Record<string, number>>({});
 
   // Rule form sheet
   const [sheetOpen,     setSheetOpen]     = useState(false);
@@ -98,10 +102,12 @@ export default function AccountRulesScreen() {
   useFocusEffect(useCallback(() => {
     let active = true;
     (async () => {
-      const [accts, rawRules, cats] = await Promise.all([
+      const [accts, rawRules, cats, allTxs, counts] = await Promise.all([
         getAllAccounts(),
         getRulesForAccount(id),
         getAllCategories(),
+        getTransactions(id),
+        getRuleAppliedCounts(id),
       ]);
       if (!active) return;
       setAccount(accts.find(a => a.id === id) ?? null);
@@ -113,6 +119,10 @@ export default function AccountRulesScreen() {
       })));
       setCategories(cats);
       if (cats.length > 0 && !categoryId) setCategoryId(cats[0].id);
+      const nonDropped = allTxs.filter(tx => tx.dropped_at === null);
+      setUncategorizedTxs(nonDropped.filter(tx => tx.category_id === null));
+      setCategorizedTxs(nonDropped.filter(tx => tx.category_id !== null));
+      setAppliedCounts(counts);
       setLoading(false);
     })();
     return () => { active = false; };
@@ -179,8 +189,8 @@ export default function AccountRulesScreen() {
     setCreatingCat(true);
     try {
       const newId = Crypto.randomUUID();
-      await insertCategory({ id: newId, name: trimmed, color: newCatColor });
-      const newCat: Category = { id: newId, name: trimmed, color: newCatColor, created_at: Date.now() };
+      await insertCategory({ id: newId, name: trimmed, color: newCatColor, emoji: null, description: null });
+      const newCat: Category = { id: newId, name: trimmed, color: newCatColor, emoji: null, description: null, created_at: Date.now() };
       setCategories(prev => [...prev, newCat].sort((a, b) => a.name.localeCompare(b.name)));
       setCategoryId(newId);
       setCatView('collapsed'); // header shows newly created category, list closed
@@ -266,7 +276,8 @@ export default function AccountRulesScreen() {
             {
               text: 'Apply Now',
               onPress: async () => {
-                const count = await autoApplyRulesForAccount(id);
+                const result = await autoApplyRulesForAccount(id);
+                const count = result.total;
                 Alert.alert('Done!', `Categorized ${count} transaction${count === 1 ? '' : 's'}.`);
                 if (navigateBack) router.back();
               },
@@ -306,6 +317,19 @@ export default function AccountRulesScreen() {
   }
 
   const selectedCat = categories.find(c => c.id === categoryId);
+
+  const draftRule = {
+    conditions,
+    logic,
+    match_type: conditions[0]?.match_type ?? 'contains',
+    match_text: conditions[0]?.match_text ?? '',
+  } as Rule;
+  const liveMatchCount = !editingRuleId
+    ? uncategorizedTxs.filter(tx => txMatchesRulePattern(tx, draftRule)).length
+    : 0;
+  const catMatchCount = !editingRuleId
+    ? categorizedTxs.filter(tx => txMatchesRulePattern(tx, draftRule)).length
+    : 0;
 
   if (loading) {
     return (
@@ -383,6 +407,9 @@ export default function AccountRulesScreen() {
                   <View style={[styles.ruleCatDot, { backgroundColor: item.categoryColor }]} />
                   <Text style={styles.ruleCatName}>{item.categoryName}</Text>
                 </View>
+                <Text style={styles.ruleAppliedCount}>
+                  Applied {appliedCounts[item.id] ?? 0} time{(appliedCounts[item.id] ?? 0) !== 1 ? 's' : ''}
+                </Text>
               </TouchableOpacity>
               <View style={styles.ruleActions}>
                 <TouchableOpacity onPress={() => handleMove(index, 'up')} disabled={index === 0} hitSlop={8}>
@@ -417,6 +444,12 @@ export default function AccountRulesScreen() {
           <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.sheetScroll}>
 
             <Text style={styles.sheetTitle}>{editingRuleId ? 'Edit Rule' : 'Add Rule'}</Text>
+
+            {editingRuleId && (appliedCounts[editingRuleId] ?? 0) > 0 && (
+              <Text style={styles.editAppliedCount}>
+                Applied {appliedCounts[editingRuleId]} time{appliedCounts[editingRuleId] !== 1 ? 's' : ''}
+              </Text>
+            )}
 
             {/* Conditions */}
             {conditions.map((cond, idx) => (
@@ -508,6 +541,17 @@ export default function AccountRulesScreen() {
             <TouchableOpacity style={styles.addCondBtn} onPress={addCondition} activeOpacity={0.7}>
               <Text style={styles.addCondBtnText}>+ Add Condition</Text>
             </TouchableOpacity>
+
+            {!editingRuleId && (
+              <View style={styles.liveMatchRow}>
+                <Text style={[styles.liveMatchText, liveMatchCount === 0 && styles.liveMatchMuted]}>
+                  {liveMatchCount} uncategorized transaction{liveMatchCount !== 1 ? 's' : ''} would match
+                </Text>
+                <Text style={[styles.liveMatchText, catMatchCount === 0 && styles.liveMatchMuted]}>
+                  {catMatchCount} already-categorized transaction{catMatchCount !== 1 ? 's' : ''} would have matched
+                </Text>
+              </View>
+            )}
 
             {/* ── Inline category picker ── */}
             <Text style={styles.sheetLabel}>Assign category</Text>
@@ -676,6 +720,7 @@ const styles = StyleSheet.create({
   ruleCategoryRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   ruleCatDot:  { width: 10, height: 10, borderRadius: radius.full },
   ruleCatName: { fontFamily: font.regular, fontSize: 13, color: colors.textSecondary },
+  ruleAppliedCount: { fontFamily: font.regular, fontSize: 12, color: colors.textTertiary, marginTop: 3 },
 
   ruleActions:   { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   arrow:         { fontSize: 18, color: colors.primary, fontFamily: font.bold },
@@ -808,4 +853,9 @@ const styles = StyleSheet.create({
   },
   saveBtnDisabled: { opacity: 0.4 },
   saveBtnText:     { fontFamily: font.bold, fontSize: 16, color: colors.textOnColor },
+
+  editAppliedCount: { fontFamily: font.regular, fontSize: 13, color: colors.textTertiary, textAlign: 'center', marginBottom: spacing.md },
+  liveMatchRow:     { paddingVertical: spacing.sm, marginBottom: spacing.sm, alignItems: 'center' },
+  liveMatchText:    { fontFamily: font.semiBold, fontSize: 14, color: colors.primary },
+  liveMatchMuted:   { color: colors.textTertiary },
 });

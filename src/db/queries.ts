@@ -54,6 +54,8 @@ export interface Category {
   id: string;
   name: string;
   color: string;
+  emoji: string | null;        // v4.0 — nullable; legacy rows have null
+  description: string | null;  // v4.0 — nullable; shown in starter-category UI
   created_at: number;
 }
 
@@ -585,17 +587,24 @@ export async function getAllCategories(): Promise<Category[]> {
 export async function insertCategory(category: Omit<Category, 'created_at'>): Promise<void> {
   const db = await getDb();
   await db.runAsync(
-    `INSERT INTO categories (id, name, color, created_at) VALUES (?, ?, ?, ?)`,
-    category.id, category.name, category.color, Date.now(),
+    `INSERT INTO categories (id, name, color, emoji, description, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
+    category.id, category.name, category.color,
+    category.emoji ?? null, category.description ?? null,
+    Date.now(),
   );
 }
 
-export async function updateCategory(id: string, fields: { name?: string; color?: string }): Promise<void> {
+export async function updateCategory(
+  id: string,
+  fields: { name?: string; color?: string; emoji?: string | null; description?: string | null },
+): Promise<void> {
   const db = await getDb();
   const sets: string[] = [];
-  const values: string[] = [];
-  if (fields.name  !== undefined) { sets.push('name = ?');  values.push(fields.name); }
-  if (fields.color !== undefined) { sets.push('color = ?'); values.push(fields.color); }
+  const values: (string | null)[] = [];
+  if (fields.name        !== undefined) { sets.push('name = ?');        values.push(fields.name); }
+  if (fields.color       !== undefined) { sets.push('color = ?');       values.push(fields.color); }
+  if (fields.emoji       !== undefined) { sets.push('emoji = ?');       values.push(fields.emoji ?? null); }
+  if (fields.description !== undefined) { sets.push('description = ?'); values.push(fields.description ?? null); }
   if (sets.length === 0) return;
   values.push(id);
   await db.runAsync(`UPDATE categories SET ${sets.join(', ')} WHERE id = ?`, ...values);
@@ -667,6 +676,18 @@ export async function reorderRules(orderedIds: string[]): Promise<void> {
       await db.runAsync(`UPDATE rules SET priority = ? WHERE id = ?`, i + 1, orderedIds[i]);
     }
   });
+}
+
+export async function getRuleAppliedCounts(accountId: string): Promise<Record<string, number>> {
+  const db = await getDb();
+  const rows = await db.getAllAsync<{ rule_id: string; count: number }>(
+    `SELECT applied_rule_id AS rule_id, COUNT(*) AS count
+     FROM transactions
+     WHERE account_id = ? AND applied_rule_id IS NOT NULL AND dropped_at IS NULL
+     GROUP BY applied_rule_id`,
+    accountId,
+  );
+  return Object.fromEntries(rows.map(r => [r.rule_id, r.count]));
 }
 
 // --- Categorization ---
@@ -907,5 +928,106 @@ export async function getActualsByCategoryMonthAllAccountsByAccount(
        AND substr(date, 1, 4) = ?
      GROUP BY account_id, category_id, month`,
     year,
+  );
+}
+
+// --- Foundational rule settings (v4.0) ---
+// Logic for each foundational rule lives in src/domain/foundational-rules.ts.
+// User state (enabled flag + category mapping) lives here, keyed per account.
+
+export interface FoundationalRuleSetting {
+  account_id:  string;
+  rule_id:     string;   // matches FoundationalRule.id, e.g. "food-dining"
+  category_id: string | null;
+  enabled:     number;   // 1 = enabled, 0 = disabled
+  created_at:  number;
+}
+
+export async function getFoundationalRuleSettingsForAccount(
+  accountId: string,
+): Promise<FoundationalRuleSetting[]> {
+  const db = await getDb();
+  return db.getAllAsync<FoundationalRuleSetting>(
+    `SELECT * FROM foundational_rule_settings WHERE account_id = ?`,
+    accountId,
+  );
+}
+
+/** Upsert the category + enabled state for one foundational rule on one account. */
+export async function upsertFoundationalRuleSetting(
+  accountId:  string,
+  ruleId:     string,
+  categoryId: string | null,
+  enabled:    number,
+): Promise<void> {
+  const db = await getDb();
+  await db.runAsync(
+    `INSERT INTO foundational_rule_settings (account_id, rule_id, category_id, enabled, created_at)
+     VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(account_id, rule_id) DO UPDATE SET category_id = excluded.category_id,
+                                                     enabled     = excluded.enabled`,
+    accountId, ruleId, categoryId, enabled, Date.now(),
+  );
+}
+
+/**
+ * Returns Rule-shaped objects (id prefixed "foundational:<rule_id>") for all
+ * enabled foundational rules that have a category mapped for this account.
+ *
+ * INVARIANT: a rule with no category_id is NEVER returned, even if enabled = 1.
+ * This mirrors the UI constraint (toggle disabled without a category) and the DB
+ * filter here as a belt-and-suspenders guarantee.
+ */
+export async function getActiveFoundationalRulesAsRules(accountId: string): Promise<Rule[]> {
+  const db = await getDb();
+  const rows = await db.getAllAsync<FoundationalRuleSetting>(
+    `SELECT * FROM foundational_rule_settings
+     WHERE account_id = ? AND enabled = 1 AND category_id IS NOT NULL`,
+    accountId,
+  );
+  // Lazy import to avoid circular deps; foundational-rules.ts imports from queries.ts
+  // only for the RuleCondition type, which is fine.
+  const { FOUNDATIONAL_RULES } = await import('../domain/foundational-rules');
+  const ruleMap = new Map(FOUNDATIONAL_RULES.map(r => [r.id, r]));
+
+  return rows
+    .map(setting => {
+      const fr = ruleMap.get(setting.rule_id);
+      if (!fr || !setting.category_id) return null;
+      const first = fr.conditions[0];
+      return {
+        id:          `foundational:${fr.id}`,
+        account_id:  accountId,
+        category_id: setting.category_id,
+        match_type:  first.match_type,
+        match_text:  first.match_text,
+        logic:       fr.logic as 'AND' | 'OR',
+        conditions:  fr.conditions,
+        priority:    9999,  // always last — user rules are lower numbers
+        created_at:  setting.created_at,
+      } satisfies Rule;
+    })
+    .filter((r): r is Rule => r !== null);
+}
+
+// --- App preferences (v4.0) ---
+// Lightweight key/value store for app-level flags.
+// v4.0 keys: "v4_welcomed" (set to "true" after welcome sheet dismisses)
+
+export async function getPreference(key: string): Promise<string | null> {
+  const db = await getDb();
+  const row = await db.getFirstAsync<{ value: string }>(
+    `SELECT value FROM app_preferences WHERE key = ?`,
+    key,
+  );
+  return row?.value ?? null;
+}
+
+export async function setPreference(key: string, value: string): Promise<void> {
+  const db = await getDb();
+  await db.runAsync(
+    `INSERT INTO app_preferences (key, value, updated_at) VALUES (?, ?, ?)
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+    key, value, Date.now(),
   );
 }

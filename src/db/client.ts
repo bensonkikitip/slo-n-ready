@@ -1,7 +1,7 @@
 import * as SQLite from 'expo-sqlite';
 import * as FileSystem from 'expo-file-system/legacy';
 
-const LATEST_DB_VERSION = 9;
+const LATEST_DB_VERSION = 10;
 
 // Written before any migration runs so the user can always roll back.
 // Uses the same path and format as writeBackup() in backup.ts.
@@ -254,6 +254,46 @@ async function _init(): Promise<SQLite.SQLiteDatabase> {
       `);
     } catch {}
     await db.execAsync('PRAGMA user_version = 9');
+  }
+
+  if (version < 10) {
+    // v4.0: categories get emoji + description columns (nullable, additive)
+    try { await db.execAsync(`ALTER TABLE categories ADD COLUMN emoji TEXT`); } catch {}
+    try { await db.execAsync(`ALTER TABLE categories ADD COLUMN description TEXT`); } catch {}
+
+    // v4.0: per-account foundational rule settings (enabled flag + category mapping)
+    // Logic lives in code (foundational-rules.ts); user state lives here.
+    try {
+      await db.execAsync(`
+        CREATE TABLE IF NOT EXISTS foundational_rule_settings (
+          account_id  TEXT NOT NULL,
+          rule_id     TEXT NOT NULL,
+          category_id TEXT,
+          enabled     INTEGER NOT NULL DEFAULT 1,
+          created_at  INTEGER NOT NULL,
+          PRIMARY KEY (account_id, rule_id),
+          FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE,
+          FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE SET NULL
+        )
+      `);
+      await db.execAsync(`
+        CREATE INDEX IF NOT EXISTS idx_foundational_settings_account
+        ON foundational_rule_settings(account_id)
+      `);
+    } catch {}
+
+    // v4.0: lightweight key/value preferences table (v4_welcomed flag lives here)
+    try {
+      await db.execAsync(`
+        CREATE TABLE IF NOT EXISTS app_preferences (
+          key        TEXT PRIMARY KEY,
+          value      TEXT NOT NULL,
+          updated_at INTEGER NOT NULL
+        )
+      `);
+    } catch {}
+
+    await db.execAsync('PRAGMA user_version = 10');
   }
 
   _db = db;

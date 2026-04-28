@@ -1,9 +1,15 @@
-import { Rule, RuleCondition, MatchType, getAllAccounts, getRulesForAccount, getUncategorizedTransactionsForAccount, bulkSetTransactionCategories } from '../db/queries';
+import { Rule, RuleCondition, MatchType, getAllAccounts, getRulesForAccount, getActiveFoundationalRulesAsRules, getUncategorizedTransactionsForAccount, bulkSetTransactionCategories } from '../db/queries';
 
 export interface RuleAssignment {
   transactionId: string;
   categoryId:    string;
   ruleId:        string;
+}
+
+export interface ApplyResult {
+  total:          number;
+  byUserRule:     number;
+  byFoundational: number;
 }
 
 function matchesCondition(
@@ -54,22 +60,60 @@ export function applyRulesToTransactions(
   return assignments;
 }
 
-export async function autoApplyRulesForAccount(accountId: string): Promise<number> {
-  const [rules, transactions] = await Promise.all([
+export function txMatchesRulePattern(
+  tx: { description: string; amount_cents: number },
+  rule: Rule,
+): boolean {
+  const conds = rule.conditions.length > 0
+    ? rule.conditions
+    : [{ match_type: rule.match_type, match_text: rule.match_text }];
+  return rule.logic === 'OR'
+    ? conds.some(c => matchesCondition(tx, c))
+    : conds.every(c => matchesCondition(tx, c));
+}
+
+export function txMatchesSingleRule(
+  tx: { description: string; amount_cents: number; category_set_manually: number },
+  rule: Rule,
+): boolean {
+  if (tx.category_set_manually) return false;
+  return txMatchesRulePattern(tx, rule);
+}
+
+export async function autoApplyRulesForAccount(accountId: string): Promise<ApplyResult> {
+  const [userRules, foundationalRules, transactions] = await Promise.all([
     getRulesForAccount(accountId),
+    getActiveFoundationalRulesAsRules(accountId),
     getUncategorizedTransactionsForAccount(accountId),
   ]);
-  if (rules.length === 0 || transactions.length === 0) return 0;
-  const assignments = applyRulesToTransactions(transactions, rules);
+
+  // ORDERING CONTRACT: user rules ALWAYS run first. Foundational rules are appended
+  // at the end as a final fallback layer. applyRulesToTransactions is first-match-wins
+  // by array order, so a user rule always wins when both would match the same
+  // transaction. Do not reorder without explicit approval.
+  const merged = [...userRules, ...foundationalRules];
+
+  if (merged.length === 0 || transactions.length === 0) {
+    return { total: 0, byUserRule: 0, byFoundational: 0 };
+  }
+
+  const assignments = applyRulesToTransactions(transactions, merged);
   await bulkSetTransactionCategories(assignments);
-  return assignments.length;
+
+  const byFoundational = assignments.filter(a => a.ruleId.startsWith('foundational:')).length;
+  return {
+    total:          assignments.length,
+    byUserRule:     assignments.length - byFoundational,
+    byFoundational,
+  };
 }
 
 export async function autoApplyAllRules(): Promise<number> {
   const accounts = await getAllAccounts();
   let total = 0;
   for (const account of accounts) {
-    total += await autoApplyRulesForAccount(account.id);
+    const result = await autoApplyRulesForAccount(account.id);
+    total += result.total;
   }
   return total;
 }

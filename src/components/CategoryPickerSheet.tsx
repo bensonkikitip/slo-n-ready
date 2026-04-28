@@ -46,8 +46,8 @@ export function CategoryPickerSheet({
     setCreating(true);
     try {
       const id = Crypto.randomUUID();
-      await insertCategory({ id, name: trimmed, color: newColor });
-      const newCat: Category = { id, name: trimmed, color: newColor, created_at: Date.now() };
+      await insertCategory({ id, name: trimmed, color: newColor, emoji: null, description: null });
+      const newCat: Category = { id, name: trimmed, color: newColor, emoji: null, description: null, created_at: Date.now() };
       onCategoryCreated?.(newCat);
       onSelect(id); // auto-select the new category and close
     } finally {

@@ -20,7 +20,7 @@ export default function NewCategoryScreen() {
     if (!trimmed) return;
     setSaving(true);
     try {
-      await insertCategory({ id: Crypto.randomUUID(), name: trimmed, color: selectedColor });
+      await insertCategory({ id: Crypto.randomUUID(), name: trimmed, color: selectedColor, emoji: null, description: null });
       router.back();
     } catch (e: any) {
       Alert.alert('Error', e.message ?? 'Could not save category.');
