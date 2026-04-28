@@ -1,7 +1,7 @@
 import React, { useCallback, useMemo, useRef, useState } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity,
-  StyleSheet, ActivityIndicator, Alert,
+  StyleSheet, ActivityIndicator, Alert, Modal,
 } from 'react-native';
 import { useRouter, useLocalSearchParams, useFocusEffect, Stack } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -10,7 +10,7 @@ import {
   getAllAccounts, deleteAccount,
   getDistinctMonths, getTransactionsForMonth,
   getDistinctYears, getTransactionsForYear,
-  getAllCategories, setTransactionCategory,
+  getAllCategories, setTransactionCategory, bulkManualSetCategory,
 } from '../../../src/db/queries';
 import { writeBackup } from '../../../src/db/backup';
 import { buildMonthList, buildYearList, MonthEntry, YearEntry } from '../../../src/domain/month';
@@ -37,6 +37,10 @@ export default function AccountDetailScreen() {
   const [selectedTransactionId, setSelectedTransactionId] = useState<string | null>(null);
   const [categoryFilters,       setCategoryFilters]       = useState<string[]>([]);
   const [loading,               setLoading]               = useState(true);
+  const [menuOpen,              setMenuOpen]              = useState(false);
+  const [bulkMode,              setBulkMode]              = useState(false);
+  const [selectedIds,           setSelectedIds]           = useState<Set<string>>(new Set());
+  const [bulkPickerVisible,     setBulkPickerVisible]     = useState(false);
 
   const selectedMonthRef = useRef('');
   const selectedYearRef  = useRef('');
@@ -136,6 +140,32 @@ export default function AccountDetailScreen() {
     [categories],
   );
 
+  function toggleSelectId(txId: string) {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(txId)) next.delete(txId); else next.add(txId);
+      return next;
+    });
+  }
+
+  function exitBulkMode() {
+    setBulkMode(false);
+    setSelectedIds(new Set());
+  }
+
+  async function handleBulkCategorySelect(categoryId: string | null) {
+    const ids = Array.from(selectedIds);
+    await bulkManualSetCategory(ids, categoryId);
+    setTransactions(prev => prev.map(t =>
+      selectedIds.has(t.id)
+        ? { ...t, category_id: categoryId, category_set_manually: 1, applied_rule_id: null }
+        : t,
+    ));
+    exitBulkMode();
+    setBulkPickerVisible(false);
+    void writeBackup();
+  }
+
   function handleDelete() {
     Alert.alert(
       'Delete Account',
@@ -206,22 +236,41 @@ export default function AccountDetailScreen() {
     <>
       <Stack.Screen
         options={{
-          title: account.name,
-          headerRight: () => (
-            <View style={styles.headerBtns}>
-              <TouchableOpacity onPress={() => router.push(`/account/${id}/rules`)} hitSlop={12}>
-                <Text style={styles.rulesBtn}>Rules</Text>
+          title: bulkMode ? `${selectedIds.size} selected` : account.name,
+          headerRight: () =>
+            bulkMode ? (
+              <TouchableOpacity onPress={exitBulkMode} hitSlop={12}>
+                <Text style={styles.editBtn}>Done</Text>
               </TouchableOpacity>
-              <TouchableOpacity onPress={() => router.push(`/account/${id}/edit`)} hitSlop={12}>
-                <Text style={styles.editBtn}>Edit</Text>
+            ) : (
+              <TouchableOpacity onPress={() => setMenuOpen(true)} hitSlop={12}>
+                <Text style={styles.menuDots}>•••</Text>
               </TouchableOpacity>
-              <TouchableOpacity onPress={handleDelete} hitSlop={12}>
-                <Text style={styles.deleteBtn}>Delete</Text>
-              </TouchableOpacity>
-            </View>
-          ),
+            ),
         }}
       />
+
+      {/* Action menu dropdown */}
+      <Modal visible={menuOpen} transparent animationType="fade" onRequestClose={() => setMenuOpen(false)}>
+        <TouchableOpacity style={styles.menuBackdrop} activeOpacity={1} onPress={() => setMenuOpen(false)} />
+        <View style={[styles.menuCard, { top: insets.top + 44 + 6 }]}>
+          <TouchableOpacity style={styles.menuItem} onPress={() => { setMenuOpen(false); router.push(`/account/${id}/rules`); }}>
+            <Text style={styles.menuItemText}>Rules</Text>
+          </TouchableOpacity>
+          <View style={styles.menuDivider} />
+          <TouchableOpacity style={styles.menuItem} onPress={() => { setMenuOpen(false); router.push(`/account/${id}/edit`); }}>
+            <Text style={styles.menuItemText}>Edit</Text>
+          </TouchableOpacity>
+          <View style={styles.menuDivider} />
+          <TouchableOpacity style={styles.menuItem} onPress={() => { setMenuOpen(false); setBulkMode(true); }}>
+            <Text style={styles.menuItemText}>Bulk Edit</Text>
+          </TouchableOpacity>
+          <View style={styles.menuDivider} />
+          <TouchableOpacity style={styles.menuItem} onPress={() => { setMenuOpen(false); handleDelete(); }}>
+            <Text style={[styles.menuItemText, { color: colors.destructive }]}>Delete</Text>
+          </TouchableOpacity>
+        </View>
+      </Modal>
       <View style={styles.container}>
         <View style={[styles.typeStrip, { backgroundColor: accent }]}>
           <Text style={styles.typeStripText}>
@@ -264,7 +313,9 @@ export default function AccountDetailScreen() {
             <TransactionRow
               transaction={item}
               category={item.category_id ? categoryMap[item.category_id] ?? null : null}
-              onPress={() => setSelectedTransactionId(item.id)}
+              onPress={bulkMode ? () => toggleSelectId(item.id) : () => setSelectedTransactionId(item.id)}
+              bulkMode={bulkMode}
+              selected={selectedIds.has(item.id)}
             />
           )}
           contentContainerStyle={[
@@ -286,13 +337,29 @@ export default function AccountDetailScreen() {
           }
         />
 
-        <TouchableOpacity
-          style={[styles.importFab, { bottom: insets.bottom + spacing.lg, backgroundColor: accent }]}
-          onPress={() => router.push(`/account/${id}/import`)}
-          activeOpacity={0.85}
-        >
-          <Text style={styles.importFabText}>Import CSV</Text>
-        </TouchableOpacity>
+        {bulkMode ? (
+          <TouchableOpacity
+            style={[
+              styles.importFab,
+              { bottom: insets.bottom + spacing.lg, backgroundColor: accent },
+              selectedIds.size === 0 && styles.fabDisabled,
+            ]}
+            onPress={() => selectedIds.size > 0 && setBulkPickerVisible(true)}
+            activeOpacity={0.85}
+          >
+            <Text style={styles.importFabText}>
+              Bulk Categorize{selectedIds.size > 0 ? ` (${selectedIds.size})` : ''}
+            </Text>
+          </TouchableOpacity>
+        ) : (
+          <TouchableOpacity
+            style={[styles.importFab, { bottom: insets.bottom + spacing.lg, backgroundColor: accent }]}
+            onPress={() => router.push(`/account/${id}/import`)}
+            activeOpacity={0.85}
+          >
+            <Text style={styles.importFabText}>Import CSV</Text>
+          </TouchableOpacity>
+        )}
       </View>
 
       <CategoryPickerSheet
@@ -303,6 +370,15 @@ export default function AccountDetailScreen() {
         }
         onClose={() => setSelectedTransactionId(null)}
         onSelect={handleCategorySelect}
+        onCategoryCreated={cat => setCategories(prev => [...prev, cat].sort((a, b) => a.name.localeCompare(b.name)))}
+      />
+
+      <CategoryPickerSheet
+        visible={bulkPickerVisible}
+        categories={categories}
+        currentCategoryId={null}
+        onClose={() => setBulkPickerVisible(false)}
+        onSelect={handleBulkCategorySelect}
         onCategoryCreated={cat => setCategories(prev => [...prev, cat].sort((a, b) => a.name.localeCompare(b.name)))}
       />
     </>
@@ -320,10 +396,35 @@ const styles = StyleSheet.create({
     color: colors.textOnColor, letterSpacing: 0.4,
   },
 
-  headerBtns: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
-  rulesBtn:   { fontFamily: font.semiBold, fontSize: 15, color: colors.primary },
-  editBtn:    { fontFamily: font.semiBold, fontSize: 15, color: colors.primary },
-  deleteBtn:  { fontFamily: font.semiBold, fontSize: 15, color: colors.destructive, marginRight: 4 },
+  menuDots: {
+    fontFamily:  font.bold,
+    fontSize:    18,
+    color:       colors.primary,
+    letterSpacing: 2,
+    marginRight: 4,
+  },
+  editBtn: { fontFamily: font.semiBold, fontSize: 15, color: colors.primary },
+
+  menuBackdrop: { ...StyleSheet.absoluteFillObject },
+  menuCard: {
+    position:          'absolute',
+    right:             spacing.md,
+    backgroundColor:   colors.surface,
+    borderRadius:      radius.md,
+    shadowColor:       '#000',
+    shadowOffset:      { width: 0, height: 4 },
+    shadowOpacity:     0.15,
+    shadowRadius:      12,
+    elevation:         8,
+    minWidth:          160,
+    overflow:          'hidden',
+  },
+  menuItem: {
+    paddingVertical:   14,
+    paddingHorizontal: spacing.md,
+  },
+  menuItemText: { fontFamily: font.semiBold, fontSize: 15, color: colors.text },
+  menuDivider:  { height: 1, backgroundColor: colors.separator },
 
   pickerRow: {
     flexDirection:   'row',
@@ -348,4 +449,5 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.2, shadowRadius: 8, elevation: 6,
   },
   importFabText: { fontFamily: font.bold, fontSize: 17, color: colors.textOnColor },
+  fabDisabled:   { opacity: 0.45 },
 });

@@ -651,6 +651,24 @@ export async function setTransactionCategory(
   );
 }
 
+export async function bulkManualSetCategory(
+  transactionIds: string[],
+  categoryId: string | null,
+): Promise<void> {
+  if (transactionIds.length === 0) return;
+  const db = await getDb();
+  await db.withTransactionAsync(async () => {
+    for (const id of transactionIds) {
+      await db.runAsync(
+        `UPDATE transactions
+         SET category_id = ?, category_set_manually = 1, applied_rule_id = NULL
+         WHERE id = ?`,
+        categoryId, id,
+      );
+    }
+  });
+}
+
 export async function bulkSetTransactionCategories(
   assignments: Array<{ transactionId: string; categoryId: string; ruleId: string }>,
 ): Promise<void> {

@@ -10,9 +10,11 @@ interface Props {
   accountBadge?: string;
   category?:    Category | null;
   onPress?:     () => void;
+  bulkMode?:    boolean;
+  selected?:    boolean;
 }
 
-export function TransactionRow({ transaction, accountBadge, category, onPress }: Props) {
+export function TransactionRow({ transaction, accountBadge, category, onPress, bulkMode = false, selected = false }: Props) {
   const isDropped  = transaction.dropped_at != null;
   const isPending  = !!transaction.is_pending && !isDropped;
   const isPositive = transaction.amount_cents >= 0;
@@ -24,7 +26,12 @@ export function TransactionRow({ transaction, accountBadge, category, onPress }:
     : colors.text;
 
   const content = (
-    <View style={[styles.row, isDropped && styles.rowDropped]}>
+    <View style={[styles.row, isDropped && styles.rowDropped, bulkMode && selected && styles.rowSelected]}>
+      {bulkMode && (
+        <View style={[styles.checkbox, selected && styles.checkboxSelected]}>
+          {selected && <Text style={styles.checkboxMark}>✓</Text>}
+        </View>
+      )}
       <View style={styles.left}>
         <Text
           style={[styles.description, isDropped && styles.textDropped]}
@@ -64,7 +71,7 @@ export function TransactionRow({ transaction, accountBadge, category, onPress }:
     </View>
   );
 
-  if (onPress) {
+  if (onPress || bulkMode) {
     return (
       <TouchableOpacity onPress={onPress} activeOpacity={0.7}>
         {content}
@@ -86,6 +93,30 @@ const styles = StyleSheet.create({
   },
   rowDropped: {
     backgroundColor: colors.background,
+  },
+  rowSelected: {
+    backgroundColor: colors.primaryLight,
+  },
+  checkbox: {
+    width:           22,
+    height:          22,
+    borderRadius:    11,
+    borderWidth:     1.5,
+    borderColor:     colors.border,
+    marginRight:     spacing.sm,
+    alignItems:      'center',
+    justifyContent:  'center',
+    flexShrink:      0,
+  },
+  checkboxSelected: {
+    backgroundColor: colors.primary,
+    borderColor:     colors.primary,
+  },
+  checkboxMark: {
+    fontFamily: font.bold,
+    fontSize:   12,
+    color:      '#fff',
+    lineHeight: 14,
   },
   left: {
     flex:        1,
