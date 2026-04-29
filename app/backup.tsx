@@ -3,7 +3,7 @@ import {
   View, Text, TouchableOpacity, StyleSheet,
   Alert, ScrollView, ActivityIndicator,
 } from 'react-native';
-import { Stack, useFocusEffect } from 'expo-router';
+import { Stack, useFocusEffect, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Sharing from 'expo-sharing';
 import * as DocumentPicker from 'expo-document-picker';
@@ -16,7 +16,8 @@ import { RacheyBanner } from '../src/components/RacheyBanner';
 import { colors, font, spacing, radius } from '../src/theme';
 
 export default function BackupScreen() {
-  const insets = useSafeAreaInsets();
+  const insets  = useSafeAreaInsets();
+  const router  = useRouter();
   const [info,         setInfo]         = useState<BackupInfo | null>(null);
   const [loading,      setLoading]      = useState(true);
   const [working,      setWorking]      = useState(false);
@@ -125,11 +126,9 @@ export default function BackupScreen() {
                     setWorking(true);
                     try {
                       await wipeAllData();
-                      const refreshed = await getBackupInfo();
-                      setInfo(refreshed);
+                      router.replace('/');
                     } catch (e: any) {
                       Alert.alert('Wipe failed', e.message ?? 'Unknown error');
-                    } finally {
                       setWorking(false);
                     }
                   },
