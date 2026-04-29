@@ -46,7 +46,7 @@ export function TransactionRow({ transaction, accountBadge, category, onPress, b
               <Text style={styles.badgeText}>{accountBadge}</Text>
             </View>
           )}
-          {category && <CategoryBadge name={category.name} color={category.color} />}
+          {category && <CategoryBadge name={category.name} color={category.color} emoji={category.emoji} />}
           {category && transaction.category_set_manually === 1 && (
             <Text style={styles.sourceIcon}>✎</Text>
           )}

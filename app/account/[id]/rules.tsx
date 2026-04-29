@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  View, Text, FlatList, TouchableOpacity,
+  View, Text, FlatList, TouchableOpacity, TouchableWithoutFeedback,
   Modal, TextInput, StyleSheet, SafeAreaView,
   ActivityIndicator, Alert, ScrollView, Switch,
 } from 'react-native';
@@ -64,7 +64,7 @@ function ruleMatchSummary(cond: { match_type: MatchType; match_text: string }): 
 // Three states for the inline category picker within the rule form
 type CatView = 'collapsed' | 'list' | 'create';
 
-interface RuleWithCategory extends Rule { categoryName: string; categoryColor: string; }
+interface RuleWithCategory extends Rule { categoryName: string; categoryColor: string; categoryEmoji: string | null; }
 
 export default function AccountRulesScreen() {
   const { id, prefillText, prefillCategory } = useLocalSearchParams<{
@@ -125,6 +125,7 @@ export default function AccountRulesScreen() {
         ...r,
         categoryName:  catMap[r.category_id]?.name  ?? '(deleted)',
         categoryColor: catMap[r.category_id]?.color ?? colors.textTertiary,
+        categoryEmoji: catMap[r.category_id]?.emoji  ?? null,
       })));
       setCategories(cats);
       if (cats.length > 0 && !categoryId) setCategoryId(cats[0].id);
@@ -216,6 +217,7 @@ export default function AccountRulesScreen() {
       ...r,
       categoryName:  catMap[r.category_id]?.name  ?? '(deleted)',
       categoryColor: catMap[r.category_id]?.color ?? colors.textTertiary,
+      categoryEmoji: catMap[r.category_id]?.emoji  ?? null,
     })));
   }
 
@@ -443,7 +445,11 @@ export default function AccountRulesScreen() {
                     );
                   })}
                 <View style={styles.ruleCategoryRow}>
-                  <View style={[styles.ruleCatDot, { backgroundColor: item.categoryColor }]} />
+                  <View style={[styles.ruleCatDot, { backgroundColor: item.categoryColor }]}>
+                    {item.categoryEmoji
+                      ? <Text style={styles.ruleCatDotEmoji}>{item.categoryEmoji}</Text>
+                      : null}
+                  </View>
                   <Text style={styles.ruleCatName}>{item.categoryName}</Text>
                 </View>
                 <Text style={styles.ruleAppliedCount}>
@@ -505,7 +511,11 @@ export default function AccountRulesScreen() {
                       >
                         {cat ? (
                           <View style={styles.foundationalCatChosen}>
-                            <View style={[styles.catDot, { backgroundColor: cat.color }]} />
+                            <View style={[styles.catDot, { backgroundColor: cat.color }]}>
+                              {cat.emoji
+                                ? <Text style={styles.catDotEmoji}>{cat.emoji}</Text>
+                                : null}
+                            </View>
                             <Text style={styles.foundationalCatName}>{cat.name}</Text>
                           </View>
                         ) : (
@@ -582,7 +592,11 @@ export default function AccountRulesScreen() {
                   onPress={() => foundationalCatPicker && handleFoundationalCategorySelect(foundationalCatPicker, cat.id)}
                   activeOpacity={0.7}
                 >
-                  <View style={[styles.catRowDot, { backgroundColor: cat.color }]} />
+                  <View style={[styles.catRowDot, { backgroundColor: cat.color }]}>
+                    {cat.emoji
+                      ? <Text style={styles.catRowDotEmoji}>{cat.emoji}</Text>
+                      : null}
+                  </View>
                   <Text style={styles.catRowLabel}>{cat.name}</Text>
                   {isSelected && <Text style={styles.checkmark}>✓</Text>}
                 </TouchableOpacity>
@@ -604,7 +618,17 @@ export default function AccountRulesScreen() {
         <TouchableOpacity style={styles.backdrop} activeOpacity={1} onPress={closeSheet} />
         <SafeAreaView style={styles.sheet}>
           <View style={styles.sheetHandle} />
-          <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.sheetScroll}>
+          <ScrollView
+            keyboardShouldPersistTaps="handled"
+            contentContainerStyle={styles.sheetScroll}
+            onScrollBeginDrag={() => setCatView('collapsed')}
+          >
+            {/* TouchableWithoutFeedback collapses the category picker when the user
+                taps any non-interactive area of the form (labels, spacing, etc.).
+                Child TouchableOpacity elements handle their own presses and prevent
+                this from firing — so buttons and list rows are unaffected. */}
+            <TouchableWithoutFeedback onPress={() => setCatView('collapsed')}>
+              <View>
 
             <Text style={styles.sheetTitle}>{editingRuleId ? 'Edit Rule' : 'Add Rule'}</Text>
 
@@ -726,10 +750,15 @@ export default function AccountRulesScreen() {
                 onPress={() => setCatView(catView === 'list' ? 'collapsed' : 'list')}
                 activeOpacity={0.7}
               >
-                {selectedCat
-                  ? <View style={[styles.catRowDot, { backgroundColor: selectedCat.color }]} />
-                  : <View style={styles.catRowDotEmpty} />
-                }
+                {selectedCat ? (
+                  <View style={[styles.catRowDot, { backgroundColor: selectedCat.color }]}>
+                    {selectedCat.emoji
+                      ? <Text style={styles.catRowDotEmoji}>{selectedCat.emoji}</Text>
+                      : null}
+                  </View>
+                ) : (
+                  <View style={styles.catRowDotEmpty} />
+                )}
                 <Text style={[styles.catRowLabel, !selectedCat && { color: colors.textTertiary }]}>
                   {selectedCat?.name ?? 'Select category…'}
                 </Text>
@@ -748,7 +777,11 @@ export default function AccountRulesScreen() {
                         onPress={() => selectCategory(item.id)}
                         activeOpacity={0.7}
                       >
-                        <View style={[styles.catRowDot, { backgroundColor: item.color }]} />
+                        <View style={[styles.catRowDot, { backgroundColor: item.color }]}>
+                          {item.emoji
+                            ? <Text style={styles.catRowDotEmoji}>{item.emoji}</Text>
+                            : null}
+                        </View>
                         <Text style={styles.catRowLabel}>{item.name}</Text>
                         {isSelected && <Text style={styles.checkmark}>✓</Text>}
                       </TouchableOpacity>
@@ -829,6 +862,8 @@ export default function AccountRulesScreen() {
               </TouchableOpacity>
             )}
 
+              </View>
+            </TouchableWithoutFeedback>
           </ScrollView>
         </SafeAreaView>
       </Modal>
@@ -881,8 +916,9 @@ const styles = StyleSheet.create({
   ruleMatchType: { fontFamily: font.semiBold, color: colors.textSecondary },
   ruleMatchText: { fontFamily: font.semiBold, color: colors.primary },
   ruleCategoryRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  ruleCatDot:  { width: 10, height: 10, borderRadius: radius.full },
-  ruleCatName: { fontFamily: font.regular, fontSize: 13, color: colors.textSecondary },
+  ruleCatDot:      { width: 22, height: 22, borderRadius: radius.full, alignItems: 'center', justifyContent: 'center' },
+  ruleCatDotEmoji: { fontSize: 12 },
+  ruleCatName:     { fontFamily: font.regular, fontSize: 13, color: colors.textSecondary },
   ruleAppliedCount: { fontFamily: font.regular, fontSize: 12, color: colors.textTertiary, marginTop: 3 },
 
   ruleActions:   { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
@@ -984,10 +1020,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md, paddingVertical: 14,
   },
   catChevron:      { fontSize: 10, color: colors.textTertiary },
-  catRowDotEmpty:  { width: 12, height: 12, borderRadius: radius.full, marginRight: spacing.sm, backgroundColor: colors.border },
-  catRowBorder:   { borderTopWidth: 1, borderTopColor: colors.separator },
-  catRowSelected: { backgroundColor: colors.primaryLight },
-  catRowDot:      { width: 12, height: 12, borderRadius: radius.full, marginRight: spacing.sm },
+  catRowDotEmpty:  { width: 24, height: 24, borderRadius: radius.full, marginRight: spacing.sm, backgroundColor: colors.border },
+  catRowBorder:    { borderTopWidth: 1, borderTopColor: colors.separator },
+  catRowSelected:  { backgroundColor: colors.primaryLight },
+  catRowDot:       { width: 24, height: 24, borderRadius: radius.full, marginRight: spacing.sm, alignItems: 'center', justifyContent: 'center' },
+  catRowDotEmoji:  { fontSize: 13 },
   catRowLabel:    { fontFamily: font.semiBold, fontSize: 15, color: colors.text, flex: 1 },
   checkmark:      { fontFamily: font.bold, fontSize: 15, color: colors.primary },
   newCatListBtn:  { fontFamily: font.semiBold, fontSize: 15, color: colors.primary, flex: 1 },
@@ -1074,5 +1111,6 @@ const styles = StyleSheet.create({
   foundationalCatEmpty:  { fontFamily: font.regular, fontSize: 13, color: colors.textTertiary },
   foundationalApplied:   { fontFamily: font.regular, fontSize: 12, color: colors.textTertiary, marginTop: 2 },
   foundationalHint:      { fontFamily: font.regular, fontSize: 12, color: colors.textTertiary, fontStyle: 'italic', marginTop: 2 },
-  catDot: { width: 10, height: 10, borderRadius: radius.full },
+  catDot:      { width: 22, height: 22, borderRadius: radius.full, alignItems: 'center', justifyContent: 'center' },
+  catDotEmoji: { fontSize: 12 },
 });

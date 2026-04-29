@@ -101,7 +101,9 @@ export function CategoryPickerSheet({
                     onPress={() => onSelect(item.id)}
                     activeOpacity={0.7}
                   >
-                    <View style={[styles.swatch, { backgroundColor: item.color }]} />
+                    <View style={[styles.swatch, { backgroundColor: item.color }]}>
+                      {item.emoji ? <Text style={styles.swatchEmoji}>{item.emoji}</Text> : null}
+                    </View>
                     <Text style={styles.rowLabel}>{item.name}</Text>
                     {isSelected && <Text style={styles.checkmark}>✓</Text>}
                   </TouchableOpacity>
@@ -234,8 +236,12 @@ const styles = StyleSheet.create({
   rowBorder:   { borderTopWidth: 1, borderTopColor: colors.separator },
   rowSelected: { backgroundColor: colors.primaryLight },
   rowLabel:    { fontFamily: font.semiBold, fontSize: 15, color: colors.text, flex: 1 },
-  swatch:      { width: 14, height: 14, borderRadius: radius.full, marginRight: spacing.md },
-  noColorDot:  { width: 14, height: 14, borderRadius: radius.full, borderWidth: 1, borderColor: colors.border, marginRight: spacing.md },
+  swatch: {
+    width: 24, height: 24, borderRadius: radius.full,
+    marginRight: spacing.md, alignItems: 'center', justifyContent: 'center',
+  },
+  swatchEmoji: { fontSize: 13 },
+  noColorDot:  { width: 24, height: 24, borderRadius: radius.full, borderWidth: 1, borderColor: colors.border, marginRight: spacing.md },
   checkmark:   { fontFamily: font.bold, fontSize: 15, color: colors.primary },
   newCatBtn:   { fontFamily: font.semiBold, fontSize: 15, color: colors.primary, flex: 1 },
   emptyWrap:   { padding: spacing.lg, alignItems: 'center' },
