@@ -5,6 +5,7 @@ import {
 } from 'react-native';
 import { Category, insertCategory } from '../db/queries';
 import { CATEGORY_COLORS } from '../domain/category-colors';
+import { CATEGORY_EMOJIS } from '../domain/category-emojis';
 import { colors, font, spacing, radius } from '../theme';
 import * as Crypto from 'expo-crypto';
 
@@ -23,6 +24,7 @@ export function CategoryPickerSheet({
   const [phase,      setPhase]      = useState<'list' | 'create'>('list');
   const [newName,    setNewName]    = useState('');
   const [newColor,   setNewColor]   = useState<string>(CATEGORY_COLORS[0].hex);
+  const [newEmoji,   setNewEmoji]   = useState<string | null>(null);
   const [creating,   setCreating]   = useState(false);
   const [searchText, setSearchText] = useState('');
 
@@ -32,6 +34,7 @@ export function CategoryPickerSheet({
       setPhase('list');
       setNewName('');
       setNewColor(CATEGORY_COLORS[0].hex);
+      setNewEmoji(null);
       setSearchText('');
     }
   }, [visible]);
@@ -46,8 +49,8 @@ export function CategoryPickerSheet({
     setCreating(true);
     try {
       const id = Crypto.randomUUID();
-      await insertCategory({ id, name: trimmed, color: newColor, emoji: null, description: null });
-      const newCat: Category = { id, name: trimmed, color: newColor, emoji: null, description: null, created_at: Date.now() };
+      await insertCategory({ id, name: trimmed, color: newColor, emoji: newEmoji, description: null });
+      const newCat: Category = { id, name: trimmed, color: newColor, emoji: newEmoji, description: null, created_at: Date.now() };
       onCategoryCreated?.(newCat);
       onSelect(id); // auto-select the new category and close
     } finally {
@@ -148,6 +151,33 @@ export function CategoryPickerSheet({
               returnKeyType="done"
               onSubmitEditing={handleQuickCreate}
             />
+
+            <Text style={[styles.createLabel, { marginTop: spacing.md }]}>Emoji (optional)</Text>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.emojiRow}
+              keyboardShouldPersistTaps="handled"
+            >
+              {/* None chip */}
+              <TouchableOpacity
+                style={[styles.emojiChip, newEmoji === null && styles.emojiChipSelected]}
+                onPress={() => setNewEmoji(null)}
+                activeOpacity={0.7}
+              >
+                <Text style={[styles.emojiChipNoneText, newEmoji === null && styles.emojiChipNoneTextSelected]}>None</Text>
+              </TouchableOpacity>
+              {CATEGORY_EMOJIS.map(e => (
+                <TouchableOpacity
+                  key={e}
+                  style={[styles.emojiChip, newEmoji === e && styles.emojiChipSelected]}
+                  onPress={() => setNewEmoji(e)}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.emojiChipGlyph}>{e}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
 
             <Text style={[styles.createLabel, { marginTop: spacing.md }]}>Color</Text>
             <View style={styles.colorGrid}>
@@ -259,6 +289,23 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md, paddingVertical: 12,
     fontFamily: font.regular, fontSize: 16, color: colors.text,
   },
+  emojiRow: {
+    flexDirection: 'row', gap: spacing.xs,
+    paddingVertical: spacing.xs, marginBottom: spacing.sm,
+  },
+  emojiChip: {
+    paddingHorizontal: 10, paddingVertical: 7,
+    borderRadius: radius.full,
+    backgroundColor: colors.surface,
+    borderWidth: 1, borderColor: colors.border,
+    alignItems: 'center', justifyContent: 'center',
+    minWidth: 44,
+  },
+  emojiChipSelected:       { backgroundColor: colors.primaryLight, borderColor: colors.primary },
+  emojiChipGlyph:          { fontSize: 20 },
+  emojiChipNoneText:       { fontFamily: font.semiBold, fontSize: 12, color: colors.textSecondary },
+  emojiChipNoneTextSelected: { color: colors.primary },
+
   colorGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginBottom: spacing.lg },
   colorSwatch: {
     width: 40, height: 40, borderRadius: radius.full,

@@ -6,16 +6,12 @@ import {
 import { useRouter, Stack } from 'expo-router';
 import { insertCategory } from '../../src/db/queries';
 import { CATEGORY_COLORS } from '../../src/domain/category-colors';
+import { CATEGORY_EMOJIS } from '../../src/domain/category-emojis';
 import { colors, font, spacing, radius } from '../../src/theme';
 import * as Crypto from 'expo-crypto';
 
-// Curated emoji list for categories — prune to taste
-export const CATEGORY_EMOJIS = [
-  '🍔', '🛒', '🚗', '🏠', '🎬', '🛍️', '💊', '💰', '💳', '🎁',
-  '✈️', '🏨', '🐾', '🎓', '📱', '💻', '⚡', '🌮', '☕', '🍺',
-  '🏋️', '⛽', '🎮', '📚', '🎵', '🍕', '🧴', '👕', '🔧', '🌿',
-  '🎊', '🐶', '🍷', '🎯', '🏃', '🧘', '🛠️', '🎪', '🧁', '🌱',
-];
+// Re-export so existing imports from this file keep working
+export { CATEGORY_EMOJIS };
 
 export default function NewCategoryScreen() {
   const router = useRouter();

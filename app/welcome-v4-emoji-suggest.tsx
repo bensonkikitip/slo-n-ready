@@ -13,7 +13,7 @@ import {
 import { useRouter, Stack } from 'expo-router';
 import { getAllCategories, updateCategory } from '../src/db/queries';
 import { suggestEmojisForCategories } from '../src/domain/emoji-suggestions';
-import { CATEGORY_EMOJIS } from './category/new';
+import { CATEGORY_EMOJIS } from '../src/domain/category-emojis';
 import { colors, font, spacing, radius } from '../src/theme';
 import { Sloth } from '../src/components/Sloth';
 
