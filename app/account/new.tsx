@@ -7,10 +7,16 @@ import { useRouter, Link } from 'expo-router';
 import * as Crypto from 'expo-crypto';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
-import { AccountType, CsvFormat, insertAccount } from '../../src/db/queries';
+import {
+  AccountType, insertAccount,
+  importTransactions, insertImportBatch, updateImportBatchCounts,
+} from '../../src/db/queries';
 import { ColumnConfig, DEFAULT_CONFIGS } from '../../src/parsers/column-config';
 import { detectColumnConfig } from '../../src/parsers/column-detector';
 import { GenericRow } from '../../src/parsers/generic-parser';
+import { parseCsv } from '../../src/parsers';
+import { assignTransactionIds } from '../../src/domain/transaction-id';
+import { autoApplyRulesForAccount } from '../../src/domain/rules-engine';
 import { ColumnMappingForm } from '../../src/components/ColumnMappingForm';
 import { centsToDollars } from '../../src/domain/money';
 import { writeBackupSafe } from '../../src/db/backup';
@@ -29,6 +35,8 @@ export default function AddAccountScreen() {
   const [config,      setConfig]      = useState<ColumnConfig | null>(null);
   const [sampleRows,  setSampleRows]  = useState<GenericRow[]>([]);
   const [csvFilename, setCsvFilename] = useState<string | null>(null);
+  const [csvText,     setCsvText]     = useState<string | null>(null);
+  const [csvUri,      setCsvUri]      = useState<string | null>(null);
   const [detecting,   setDetecting]   = useState(false);
   const [saving,      setSaving]      = useState(false);
 
@@ -65,6 +73,8 @@ export default function AddAccountScreen() {
       setConfig(result.config);
       setSampleRows(result.sampleRows);
       setCsvFilename(asset.name ?? 'file.csv');
+      setCsvText(text);
+      setCsvUri(asset.uri);
     } catch (e: any) {
       Alert.alert('Could not read file', e.message ?? 'Unknown error');
     } finally {
@@ -108,13 +118,66 @@ export default function AddAccountScreen() {
         suggest_rules: 1,
         created_at:    Date.now(),
       });
+
+      // Import the CSV that was already picked and read for column detection.
+      // The text is already in memory — no need for the user to pick it again.
+      if (csvText && config) {
+        const rows = parseCsv(config, csvText);
+        if (rows.length > 0) {
+          const batchId    = Crypto.randomUUID();
+          const importedAt = Date.now();
+          const ids        = assignTransactionIds(
+            rows.map(r => ({
+              accountId:   newAccountId,
+              dateIso:     r.dateIso,
+              amountCents: r.amountCents,
+              description: r.description,
+            })),
+          );
+          const parsedRows = rows.map((r, i) => ({
+            id:                   ids[i],
+            date:                 r.dateIso,
+            amount_cents:         r.amountCents,
+            description:          r.description,
+            original_description: r.originalDescription,
+            is_pending:           r.isPending,
+          }));
+
+          await insertImportBatch({
+            id:                     batchId,
+            account_id:             newAccountId,
+            filename:               csvFilename ?? 'import.csv',
+            imported_at:            importedAt,
+            rows_total:             rows.length,
+            rows_inserted:          0,
+            rows_skipped_duplicate: 0,
+            rows_cleared:           0,
+            rows_dropped:           0,
+          });
+
+          const importResult = await importTransactions(newAccountId, batchId, parsedRows);
+
+          await updateImportBatchCounts(batchId, {
+            rows_inserted:          importResult.inserted,
+            rows_skipped_duplicate: importResult.skipped,
+            rows_cleared:           importResult.cleared,
+            rows_dropped:           importResult.dropped,
+          });
+
+          await autoApplyRulesForAccount(newAccountId);
+
+          // Delete the cached copy — the app never needs it again.
+          if (csvUri) {
+            try { await FileSystem.deleteAsync(csvUri, { idempotent: true }); } catch {}
+          }
+        }
+      }
+
       writeBackupSafe();
-      // Go directly to the import screen — the CSV preview during account setup
-      // is only for column detection; no transactions are imported until here.
-      // replace() so "back" from import goes home, not back to this form.
-      router.replace(`/account/${newAccountId}/import`);
-    } catch {
-      Alert.alert('Error', 'Could not save account. Please try again.');
+      // Replace this screen so "back" from the account detail goes to Home.
+      router.replace(`/account/${newAccountId}`);
+    } catch (e: any) {
+      Alert.alert('Error', e.message ?? 'Could not save account. Please try again.');
     } finally {
       setSaving(false);
     }

@@ -290,7 +290,7 @@ export default function ImportScreen() {
 
             <TouchableOpacity
               style={[styles.primaryButton, { backgroundColor: accent }]}
-              onPress={() => router.replace(`/account/${accountId}`)}
+              onPress={() => router.back()}
               activeOpacity={0.85}
             >
               <Text style={styles.primaryButtonText}>Back to Account</Text>
