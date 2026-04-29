@@ -87,6 +87,8 @@ export default function AccountRulesScreen() {
   const [foundationalSettings, setFoundationalSettings] = useState<Record<string, FoundationalRuleSetting>>({});
   // Which foundational rule's category we're picking (null = picker closed)
   const [foundationalCatPicker, setFoundationalCatPicker] = useState<string | null>(null);
+  // Which foundational rules have their pattern list expanded
+  const [foundationalExpanded, setFoundationalExpanded] = useState<Set<string>>(new Set());
 
   // Rule form sheet
   const [sheetOpen,     setSheetOpen]     = useState(false);
@@ -357,6 +359,20 @@ export default function AccountRulesScreen() {
     setFoundationalCatPicker(null);
   }
 
+  function toggleFoundationalExpanded(ruleId: string) {
+    setFoundationalExpanded(prev => {
+      const next = new Set(prev);
+      if (next.has(ruleId)) next.delete(ruleId);
+      else next.add(ruleId);
+      return next;
+    });
+  }
+
+  // Converts a raw match_text like "mcdonald" → "McDonald" for display
+  function toTitleCase(s: string): string {
+    return s.replace(/\b\w/g, c => c.toUpperCase());
+  }
+
   const selectedCat = categories.find(c => c.id === categoryId);
 
   const draftRule = {
@@ -533,6 +549,27 @@ export default function AccountRulesScreen() {
                       {/* Hint when no category selected */}
                       {!canToggle && (
                         <Text style={styles.foundationalHint}>Pick a category to turn this on.</Text>
+                      )}
+
+                      {/* Expand / collapse pattern list */}
+                      <TouchableOpacity
+                        style={styles.foundationalExpandBtn}
+                        onPress={() => toggleFoundationalExpanded(fr.id)}
+                        activeOpacity={0.7}
+                      >
+                        <Text style={styles.foundationalExpandText}>
+                          {foundationalExpanded.has(fr.id) ? '▲ Hide patterns' : '▼ See what I recognize'}
+                        </Text>
+                      </TouchableOpacity>
+
+                      {foundationalExpanded.has(fr.id) && (
+                        <View style={styles.foundationalPatterns}>
+                          {fr.conditions.map((c, ci) => (
+                            <View key={ci} style={styles.patternChip}>
+                              <Text style={styles.patternChipText}>{toTitleCase(c.match_text)}</Text>
+                            </View>
+                          ))}
+                        </View>
                       )}
                     </View>
 
@@ -1111,6 +1148,16 @@ const styles = StyleSheet.create({
   foundationalCatEmpty:  { fontFamily: font.regular, fontSize: 13, color: colors.textTertiary },
   foundationalApplied:   { fontFamily: font.regular, fontSize: 12, color: colors.textTertiary, marginTop: 2 },
   foundationalHint:      { fontFamily: font.regular, fontSize: 12, color: colors.textTertiary, fontStyle: 'italic', marginTop: 2 },
+  foundationalExpandBtn: { marginTop: 6 },
+  foundationalExpandText:{ fontFamily: font.semiBold, fontSize: 12, color: colors.primary },
+  foundationalPatterns:  { flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 6 },
+  patternChip: {
+    backgroundColor:   colors.surfaceAlt,
+    borderRadius:      radius.full,
+    paddingHorizontal: 8,
+    paddingVertical:   3,
+  },
+  patternChipText: { fontFamily: font.regular, fontSize: 11, color: colors.textSecondary },
   catDot:      { width: 22, height: 22, borderRadius: radius.full, alignItems: 'center', justifyContent: 'center' },
   catDotEmoji: { fontSize: 12 },
 });

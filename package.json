@@ -1,6 +1,6 @@
 {
   "name": "budgetapp",
-  "version": "4.0.2",
+  "version": "4.0.3",
   "main": "expo-router/entry",
   "scripts": {
     "start": "expo start",
