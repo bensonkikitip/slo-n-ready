@@ -239,16 +239,15 @@ export default function AccountsListScreen() {
 
       if (active) setLoading(false);
 
-      // First-time user: zero accounts AND zero categories AND never completed
-      // intro → push to /onboarding/intro. Mutually exclusive with welcome-v4
-      // below (welcome-v4 requires accts.length > 0).
+      // First-time user: zero accounts AND zero categories → always push to intro,
+      // regardless of intro_completed. If you have no categories and no accounts
+      // you need to go through setup — intro_completed may be stale from a
+      // previous run where the DB was partially wiped. Mutually exclusive with
+      // welcome-v4 below (that gate requires accts.length > 0).
       if (active && !introChecked.current && accts.length === 0 && allCats.length === 0) {
         introChecked.current = true;
-        const introDone = await getPreference('intro_completed');
-        if (!introDone && active) {
-          router.push('/onboarding/intro');
-          return;
-        }
+        router.push('/onboarding/intro');
+        return;
       }
 
       // Show welcome-v4 sheet once for existing users upgrading from v3.x.
