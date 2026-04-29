@@ -14,6 +14,7 @@ import {
   updateAccountSuggestRules,
   getTransactions, getRuleAppliedCounts,
   getFoundationalRuleSettingsForAccount, upsertFoundationalRuleSetting,
+  reorderFoundationalRules,
 } from '../../../src/db/queries';
 import { FOUNDATIONAL_RULES, FoundationalRule } from '../../../src/domain/foundational-rules';
 import { autoApplyRulesForAccount, txMatchesRulePattern } from '../../../src/domain/rules-engine';
@@ -85,6 +86,8 @@ export default function AccountRulesScreen() {
 
   // Foundational rule settings (per-account): keyed by rule_id
   const [foundationalSettings, setFoundationalSettings] = useState<Record<string, FoundationalRuleSetting>>({});
+  // Ordered list of foundational rules for this account (sorted by sort_order from DB)
+  const [foundationalOrder, setFoundationalOrder] = useState<FoundationalRule[]>([...FOUNDATIONAL_RULES]);
   // Which foundational rule's category we're picking (null = picker closed)
   const [foundationalCatPicker, setFoundationalCatPicker] = useState<string | null>(null);
   // Which foundational rules have their pattern list expanded
@@ -135,7 +138,17 @@ export default function AccountRulesScreen() {
       setUncategorizedTxs(nonDropped.filter(tx => tx.category_id === null));
       setCategorizedTxs(nonDropped.filter(tx => tx.category_id !== null));
       setAppliedCounts(counts);
-      setFoundationalSettings(Object.fromEntries(foundSettings.map(s => [s.rule_id, s])));
+      const settingsMap = Object.fromEntries(foundSettings.map(s => [s.rule_id, s]));
+      setFoundationalSettings(settingsMap);
+      // Sort foundational rules by this account's saved sort_order, falling back
+      // to the FOUNDATIONAL_RULES definition order for rules with no DB row yet.
+      const defaultPos = new Map(FOUNDATIONAL_RULES.map((fr, i) => [fr.id, i]));
+      const sortedFoundational = [...FOUNDATIONAL_RULES].sort((a, b) => {
+        const aPos = settingsMap[a.id]?.sort_order ?? defaultPos.get(a.id) ?? 0;
+        const bPos = settingsMap[b.id]?.sort_order ?? defaultPos.get(b.id) ?? 0;
+        return aPos - bPos;
+      });
+      setFoundationalOrder(sortedFoundational);
       setLoading(false);
     })();
     return () => { active = false; };
@@ -330,6 +343,15 @@ export default function AccountRulesScreen() {
     await reorderRules(newRules.map(r => r.id));
   }
 
+  async function handleFoundationalMove(index: number, direction: 'up' | 'down') {
+    const newOrder = [...foundationalOrder];
+    const swapWith = direction === 'up' ? index - 1 : index + 1;
+    if (swapWith < 0 || swapWith >= newOrder.length) return;
+    [newOrder[index], newOrder[swapWith]] = [newOrder[swapWith], newOrder[index]];
+    setFoundationalOrder(newOrder);
+    await reorderFoundationalRules(id, newOrder.map(fr => fr.id));
+  }
+
   // --- Foundational rule handlers ---
 
   async function handleFoundationalToggle(ruleId: string, enabled: boolean) {
@@ -340,7 +362,7 @@ export default function AccountRulesScreen() {
     await upsertFoundationalRuleSetting(id, ruleId, setting?.category_id ?? null, newEnabled);
     setFoundationalSettings(prev => ({
       ...prev,
-      [ruleId]: { ...(prev[ruleId] ?? { account_id: id, rule_id: ruleId, created_at: Date.now() }),
+      [ruleId]: { ...(prev[ruleId] ?? { account_id: id, rule_id: ruleId, sort_order: 0, created_at: Date.now() }),
                   category_id: setting?.category_id ?? null, enabled: newEnabled },
     }));
   }
@@ -354,7 +376,8 @@ export default function AccountRulesScreen() {
       ...prev,
       [ruleId]: { account_id: id, rule_id: ruleId,
                   category_id: catId, enabled: newEnabled,
-                  created_at: prev[ruleId]?.created_at ?? Date.now() },
+                  sort_order:  prev[ruleId]?.sort_order ?? 0,
+                  created_at:  prev[ruleId]?.created_at ?? Date.now() },
     }));
     setFoundationalCatPicker(null);
   }
@@ -502,7 +525,7 @@ export default function AccountRulesScreen() {
                   Always run last — your rules above take priority. Assign a category to turn one on.
                 </Text>
               </View>
-              {FOUNDATIONAL_RULES.map((fr, index) => {
+              {foundationalOrder.map((fr, index) => {
                 const setting  = foundationalSettings[fr.id];
                 const catId    = setting?.category_id ?? null;
                 const enabled  = (setting?.enabled ?? 0) === 1;
@@ -571,6 +594,24 @@ export default function AccountRulesScreen() {
                           ))}
                         </View>
                       )}
+                    </View>
+
+                    {/* Reorder arrows */}
+                    <View style={styles.foundationalArrows}>
+                      <TouchableOpacity
+                        onPress={() => handleFoundationalMove(index, 'up')}
+                        disabled={index === 0}
+                        hitSlop={8}
+                      >
+                        <Text style={[styles.arrow, index === 0 && styles.arrowDisabled]}>↑</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        onPress={() => handleFoundationalMove(index, 'down')}
+                        disabled={index === foundationalOrder.length - 1}
+                        hitSlop={8}
+                      >
+                        <Text style={[styles.arrow, index === foundationalOrder.length - 1 && styles.arrowDisabled]}>↓</Text>
+                      </TouchableOpacity>
                     </View>
 
                     {/* Toggle */}
@@ -1131,6 +1172,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surfaceAlt,
     gap: spacing.sm,
   },
+  foundationalArrows: { flexDirection: 'column', alignItems: 'center', gap: 4 },
   foundationalInfo:     { flex: 1 },
   foundationalNameRow:  { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 2 },
   foundationalEmoji:    { fontSize: 16 },

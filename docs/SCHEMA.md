@@ -6,7 +6,7 @@
 
 **Database**: local SQLite file `budgetapp.db`, opened via `expo-sqlite`.
 **Foreign keys**: enabled (`PRAGMA foreign_keys = ON`). Cascading deletes are intentional.
-**Schema version**: tracked via `PRAGMA user_version`. Current = **10** (v4.0).
+**Schema version**: tracked via `PRAGMA user_version`. Current = **11** (v4.1).
 
 ---
 
@@ -148,6 +148,7 @@ Per-account user state for built-in (foundational) rules. The rule **logic** liv
 | `rule_id` | `TEXT NOT NULL` | Matches `FoundationalRule.id` (e.g. `"food-dining"`). No FK — the rule definitions live in code, not the DB. |
 | `category_id` | `TEXT REFERENCES categories(id) ON DELETE SET NULL` | Nullable. The user's chosen category for this rule. A rule with no `category_id` cannot fire (see gating invariant below). |
 | `enabled` | `INTEGER NOT NULL DEFAULT 1` | 1 = on, 0 = off. |
+| `sort_order` | `INTEGER NOT NULL DEFAULT 0` | Per-account display and run order. Lower value = fires first. Default order is food-dining(0) → groceries(1) → transportation(2) → entertainment(3) → shopping(4) → health(5), which is the globally-optimal permutation. User rules always precede foundational rules regardless of this value. |
 | `created_at` | `INTEGER NOT NULL` | ms timestamp. |
 
 **Primary key**: `(account_id, rule_id)`.

@@ -1,7 +1,7 @@
 import * as SQLite from 'expo-sqlite';
 import * as FileSystem from 'expo-file-system/legacy';
 
-const LATEST_DB_VERSION = 10;
+const LATEST_DB_VERSION = 11;
 
 // Written before any migration runs so the user can always roll back.
 // Uses the same path and format as writeBackup() in backup.ts.
@@ -294,6 +294,36 @@ async function _init(): Promise<SQLite.SQLiteDatabase> {
     } catch {}
 
     await db.execAsync('PRAGMA user_version = 10');
+  }
+
+  if (version < 11) {
+    // v4.1: per-account sort order for foundational rules.
+    // Adds sort_order to foundational_rule_settings so users can reorder rules per account.
+    // Default order matches the globally-optimal permutation (food=0 … health=5).
+    try {
+      await db.execAsync(
+        `ALTER TABLE foundational_rule_settings ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0`,
+      );
+    } catch {}
+    // Backfill existing rows to the default optimal order (food-dining first, health last).
+    // Rows that don't exist yet get the default via the column DEFAULT above.
+    const defaultOrder: Record<string, number> = {
+      'food-dining':    0,
+      'groceries':      1,
+      'transportation': 2,
+      'entertainment':  3,
+      'shopping':       4,
+      'health':         5,
+    };
+    for (const [ruleId, pos] of Object.entries(defaultOrder)) {
+      try {
+        await db.runAsync(
+          `UPDATE foundational_rule_settings SET sort_order = ? WHERE rule_id = ?`,
+          pos, ruleId,
+        );
+      } catch {}
+    }
+    await db.execAsync('PRAGMA user_version = 11');
   }
 
   _db = db;

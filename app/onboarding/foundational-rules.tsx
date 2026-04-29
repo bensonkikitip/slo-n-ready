@@ -125,12 +125,13 @@ export default function OnboardingFoundationalRulesScreen() {
       // Stale IDs from a seeded older account can fail the FK constraint if those
       // categories were recreated with new UUIDs since the original rules were saved.
       const validCatIds = new Set(categories.map(c => c.id));
-      const safeRows = rows.map(r => {
+      const safeRows = rows.map((r, i) => {
         const catId = r.categoryId && validCatIds.has(r.categoryId) ? r.categoryId : null;
         return {
           rule_id:     r.ruleId,
           category_id: catId,
           enabled:     r.enabled && catId !== null ? 1 : 0,
+          sort_order:  i,
         };
       });
 
@@ -161,10 +162,11 @@ export default function OnboardingFoundationalRulesScreen() {
       const validCatIds = new Set(categories.map(c => c.id));
       await bulkUpsertFoundationalRuleSettings(
         accountId,
-        rows.map(r => ({
+        rows.map((r, i) => ({
           rule_id:     r.ruleId,
           category_id: r.categoryId && validCatIds.has(r.categoryId) ? r.categoryId : null,
           enabled:     0,
+          sort_order:  i,
         })),
       );
       router.back();

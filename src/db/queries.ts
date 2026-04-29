@@ -967,6 +967,7 @@ export interface FoundationalRuleSetting {
   rule_id:     string;   // matches FoundationalRule.id, e.g. "food-dining"
   category_id: string | null;
   enabled:     number;   // 1 = enabled, 0 = disabled
+  sort_order:  number;   // display/run order within this account (lower = earlier)
   created_at:  number;
 }
 
@@ -1000,22 +1001,47 @@ export async function upsertFoundationalRuleSetting(
 /**
  * Bulk-upsert foundational rule settings for one account in a single
  * transaction. Used by the per-account foundational-rules onboarding screen.
+ * Pass sort_order on each row to persist the display/run order; it defaults
+ * to the row's position in the array when omitted.
  */
 export async function bulkUpsertFoundationalRuleSettings(
   accountId: string,
-  rows: { rule_id: string; category_id: string | null; enabled: number }[],
+  rows: { rule_id: string; category_id: string | null; enabled: number; sort_order?: number }[],
 ): Promise<void> {
   if (rows.length === 0) return;
   const db = await getDb();
   const now = Date.now();
   await db.withTransactionAsync(async () => {
-    for (const r of rows) {
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i];
+      const sortOrder = r.sort_order ?? i;
       await db.runAsync(
-        `INSERT INTO foundational_rule_settings (account_id, rule_id, category_id, enabled, created_at)
-         VALUES (?, ?, ?, ?, ?)
+        `INSERT INTO foundational_rule_settings (account_id, rule_id, category_id, enabled, sort_order, created_at)
+         VALUES (?, ?, ?, ?, ?, ?)
          ON CONFLICT(account_id, rule_id) DO UPDATE SET category_id = excluded.category_id,
-                                                         enabled     = excluded.enabled`,
-        accountId, r.rule_id, r.category_id, r.enabled, now,
+                                                         enabled     = excluded.enabled,
+                                                         sort_order  = excluded.sort_order`,
+        accountId, r.rule_id, r.category_id, r.enabled, sortOrder, now,
+      );
+    }
+  });
+}
+
+/**
+ * Persist a new display/run order for foundational rules on one account.
+ * Pass the rule IDs in the desired order (index 0 = highest priority).
+ */
+export async function reorderFoundationalRules(
+  accountId: string,
+  orderedRuleIds: string[],
+): Promise<void> {
+  if (orderedRuleIds.length === 0) return;
+  const db = await getDb();
+  await db.withTransactionAsync(async () => {
+    for (let i = 0; i < orderedRuleIds.length; i++) {
+      await db.runAsync(
+        `UPDATE foundational_rule_settings SET sort_order = ? WHERE account_id = ? AND rule_id = ?`,
+        i, accountId, orderedRuleIds[i],
       );
     }
   });
@@ -1033,7 +1059,8 @@ export async function getActiveFoundationalRulesAsRules(accountId: string): Prom
   const db = await getDb();
   const rows = await db.getAllAsync<FoundationalRuleSetting>(
     `SELECT * FROM foundational_rule_settings
-     WHERE account_id = ? AND enabled = 1 AND category_id IS NOT NULL`,
+     WHERE account_id = ? AND enabled = 1 AND category_id IS NOT NULL
+     ORDER BY sort_order ASC`,
     accountId,
   );
   // Lazy import to avoid circular deps; foundational-rules.ts imports from queries.ts
