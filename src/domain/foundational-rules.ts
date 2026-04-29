@@ -13,7 +13,7 @@
  *   so a user rule always wins when both would match the same transaction.
  */
 
-import { RuleCondition } from '../db/queries';
+import type { RuleCondition } from '../db/queries';
 
 export interface FoundationalRule {
   id:                  string;           // stable key, e.g. "food-dining"
@@ -93,6 +93,28 @@ export const FOUNDATIONAL_RULES: FoundationalRule[] = [
       { match_type: 'contains', match_text: 'red robin' },
       { match_type: 'contains', match_text: 'sweetgreen' },
       { match_type: 'contains', match_text: 'noodles & company' },
+      // Additional national chains
+      { match_type: 'contains', match_text: 'kfc' },
+      { match_type: 'contains', match_text: 'culver' },
+      { match_type: 'contains', match_text: 'el pollo loco' },
+      { match_type: 'contains', match_text: 'del taco' },
+      { match_type: 'contains', match_text: 'arby' },
+      { match_type: 'contains', match_text: 'hardee' },
+      { match_type: 'contains', match_text: 'carl\'s jr' },
+      { match_type: 'contains', match_text: 'church\'s chicken' },
+      { match_type: 'contains', match_text: 'bojangle' },
+      { match_type: 'contains', match_text: 'zaxby' },
+      { match_type: 'contains', match_text: 'crumbl' },
+      { match_type: 'contains', match_text: 'cinnabon' },
+      { match_type: 'contains', match_text: 'auntie anne' },
+      { match_type: 'contains', match_text: 'jamba juice' },
+      { match_type: 'contains', match_text: 'smoothie king' },
+      { match_type: 'contains', match_text: 'tropical smoothie' },
+      { match_type: 'contains', match_text: 'firehouse subs' },
+      { match_type: 'contains', match_text: 'potbelly' },
+      { match_type: 'contains', match_text: 'boston market' },
+      { match_type: 'contains', match_text: 'freebirds' },
+      { match_type: 'contains', match_text: 'mister softee' },
       // Food delivery apps
       { match_type: 'contains', match_text: 'doordash' },
       { match_type: 'contains', match_text: 'uber eats' },
@@ -100,6 +122,44 @@ export const FOUNDATIONAL_RULES: FoundationalRule[] = [
       { match_type: 'contains', match_text: 'seamless' },
       { match_type: 'contains', match_text: 'postmates' },
       { match_type: 'contains', match_text: 'caviar' },
+      // Restaurant-specific POS prefix (Toast — restaurant industry only)
+      { match_type: 'contains', match_text: 'tst*' },
+      // Generic food lexicon — broad nouns that almost always indicate a
+      // restaurant, café, bakery, etc. Each was vetted against real backup
+      // data with FP=0; intentionally excluded: `deli` (collides with
+      // "delivery"), `kitchen` (collides with cookware/home goods),
+      // `bar` (too short, hits "barber" etc.).
+      { match_type: 'contains', match_text: 'cafe' },
+      { match_type: 'contains', match_text: 'coffee' },
+      { match_type: 'contains', match_text: 'bakery' },
+      { match_type: 'contains', match_text: 'bagel' },
+      { match_type: 'contains', match_text: 'pizza' },
+      { match_type: 'contains', match_text: 'taqueria' },
+      { match_type: 'contains', match_text: 'bistro' },
+      { match_type: 'contains', match_text: 'diner' },
+      { match_type: 'contains', match_text: 'tavern' },
+      { match_type: 'contains', match_text: 'grill' },
+      { match_type: 'contains', match_text: 'bbq' },
+      { match_type: 'contains', match_text: 'donut' },
+      { match_type: 'contains', match_text: 'brewing' },
+      { match_type: 'contains', match_text: 'creamery' },
+      { match_type: 'contains', match_text: 'ice cream' },
+      { match_type: 'contains', match_text: 'restaurant' },
+      { match_type: 'contains', match_text: 'eatery' },
+      { match_type: 'contains', match_text: 'sushi' },
+      { match_type: 'contains', match_text: 'ramen' },
+      { match_type: 'contains', match_text: 'pho ' },         // trailing space — avoid matching "phoenix", "phosphate"
+      { match_type: 'contains', match_text: 'noodle' },
+      { match_type: 'contains', match_text: 'trattoria' },
+      { match_type: 'contains', match_text: 'patisserie' },
+      { match_type: 'contains', match_text: 'gelato' },
+      { match_type: 'contains', match_text: 'boba' },
+      { match_type: 'contains', match_text: 'smoothie' },
+      { match_type: 'contains', match_text: 'cuisine' },
+      { match_type: 'contains', match_text: 'barbecue' },
+      { match_type: 'contains', match_text: 'bowls' },         // catches "açaí bowls", "BACKYARD BOWLS"; "bowls" (with s) avoids "bowling" collision
+      { match_type: 'contains', match_text: 'restaura' },      // catches truncated "CHINESE RESTAURA..." forms common in 22-char descriptors
+      { match_type: 'contains', match_text: 'too good to go' },
     ],
   },
 

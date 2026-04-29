@@ -26,11 +26,12 @@ export default function OnboardingIntroScreen() {
       <SafeAreaView style={styles.safe}>
         <View style={styles.hero}>
           <Sloth sloth="waving" size={180} />
-          <Text style={styles.headline}>Hi, I'm Rachey.</Text>
-          <Text style={styles.tagline}>Take it Slow, Do it Steady, Become Ready…zZ</Text>
         </View>
 
-        <View style={styles.body}>
+        <View style={styles.textCard}>
+          <Text style={styles.headline}>Hi, I'm Rachey.</Text>
+          <Text style={styles.tagline}>Take it Slow, Do it Steady, Become Ready…zZ</Text>
+          <View style={styles.divider} />
           <Text style={styles.bodyText}>
             I'll help you track your spending — at your own pace. Nothing gets
             sent anywhere; everything stays on your phone.
@@ -61,22 +62,37 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between', paddingVertical: spacing.xl,
   },
 
-  hero: { alignItems: 'center', marginTop: spacing.xl, gap: spacing.md },
+  hero: { alignItems: 'center', marginTop: spacing.xl },
+
+  textCard: {
+    backgroundColor: 'rgba(250,247,242,0.93)',
+    borderRadius: radius.lg,
+    padding: spacing.lg,
+    gap: spacing.sm,
+    shadowColor: '#2C2416',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+  },
+  divider: {
+    height: 1,
+    backgroundColor: colors.separator,
+    marginVertical: spacing.xs,
+  },
+
   headline: {
-    fontFamily: font.extraBold, fontSize: 32,
+    fontFamily: font.extraBold, fontSize: 30,
     color: colors.text, textAlign: 'center',
   },
   tagline: {
-    fontFamily: font.semiBold, fontSize: 14,
+    fontFamily: font.semiBold, fontSize: 13,
     color: colors.textSecondary, textAlign: 'center',
     fontStyle: 'italic', letterSpacing: 0.3,
   },
-
-  body: { gap: spacing.md, paddingHorizontal: spacing.sm },
   bodyText: {
-    fontFamily: font.regular, fontSize: 16,
+    fontFamily: font.regular, fontSize: 15,
     color: colors.textSecondary, textAlign: 'center',
-    lineHeight: 24,
+    lineHeight: 22,
   },
 
   cta: {

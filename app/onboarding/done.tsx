@@ -42,11 +42,12 @@ export default function OnboardingDoneScreen() {
       <SafeAreaView style={styles.safe}>
         <View style={styles.hero}>
           <Sloth sloth={pose} size={160} />
-          <Text style={styles.headline}>{headline}</Text>
-          <Text style={styles.quote}>"{line}"</Text>
         </View>
 
-        <View style={styles.body}>
+        <View style={styles.textCard}>
+          <Text style={styles.headline}>{headline}</Text>
+          <Text style={styles.quote}>"{line}"</Text>
+          <View style={styles.divider} />
           <Text style={styles.bodyText}>{sub}</Text>
         </View>
 
@@ -69,17 +70,32 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
 
-  hero: { alignItems: 'center', marginTop: spacing.xl, gap: spacing.md },
+  hero: { alignItems: 'center', marginTop: spacing.xl },
+
+  textCard: {
+    backgroundColor: 'rgba(250,247,242,0.93)',
+    borderRadius: radius.lg,
+    padding: spacing.lg,
+    gap: spacing.sm,
+    shadowColor: '#2C2416',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+  },
+  divider: {
+    height: 1,
+    backgroundColor: colors.separator,
+    marginVertical: spacing.xs,
+  },
+
   headline: {
     fontFamily: font.extraBold, fontSize: 26, color: colors.text,
-    textAlign: 'center', marginTop: spacing.md,
+    textAlign: 'center',
   },
   quote: {
     fontFamily: font.semiBold, fontSize: 14, color: colors.textSecondary,
-    textAlign: 'center', fontStyle: 'italic', paddingHorizontal: spacing.md,
+    textAlign: 'center', fontStyle: 'italic',
   },
-
-  body: { gap: spacing.md, paddingHorizontal: spacing.sm },
   bodyText: {
     fontFamily: font.regular, fontSize: 15, color: colors.textSecondary,
     textAlign: 'center', lineHeight: 22,
