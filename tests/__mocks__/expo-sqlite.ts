@@ -18,6 +18,10 @@ function flattenParams(params: unknown[]): Param[] {
 
 export class SQLiteDatabase {
   private db: Database.Database;
+  // Real expo-sqlite serializes operations on a single connection internally.
+  // better-sqlite3 is synchronous and rejects nested BEGIN, so we queue
+  // transactions to mirror the production semantics.
+  private txTail: Promise<void> = Promise.resolve();
 
   constructor(path: string = ':memory:') {
     this.db = new Database(path);
@@ -45,16 +49,22 @@ export class SQLiteDatabase {
   }
 
   async withTransactionAsync(cb: () => Promise<void>): Promise<void> {
-    // better-sqlite3's `transaction()` helper is synchronous, so we issue
-    // BEGIN/COMMIT/ROLLBACK manually to support the async callback.
-    this.db.exec('BEGIN');
-    try {
-      await cb();
-      this.db.exec('COMMIT');
-    } catch (e) {
-      this.db.exec('ROLLBACK');
-      throw e;
-    }
+    // Chain onto the txTail so concurrent callers serialize, mirroring real
+    // expo-sqlite. better-sqlite3's `transaction()` helper is synchronous;
+    // we use BEGIN/COMMIT/ROLLBACK manually to support the async callback.
+    const next = this.txTail.then(async () => {
+      this.db.exec('BEGIN');
+      try {
+        await cb();
+        this.db.exec('COMMIT');
+      } catch (e) {
+        this.db.exec('ROLLBACK');
+        throw e;
+      }
+    });
+    // Keep the chain alive even if this transaction fails
+    this.txTail = next.catch(() => undefined);
+    return next;
   }
 
   async closeAsync(): Promise<void> {

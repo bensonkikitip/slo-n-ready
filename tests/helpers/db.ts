@@ -5,6 +5,7 @@
 type ClientModule = typeof import('../../src/db/client');
 type QueriesModule = typeof import('../../src/db/queries');
 type BackupModule = typeof import('../../src/db/backup');
+type RulesEngineModule = typeof import('../../src/domain/rules-engine');
 type ExpoSQLite = typeof import('expo-sqlite') & { _resetMockDbs: () => void };
 type ExpoFs = typeof import('expo-file-system/legacy') & {
   _resetMockFs: () => void;
@@ -15,6 +16,7 @@ export interface TestDb {
   client: ClientModule;
   queries: QueriesModule;
   backup: BackupModule;
+  rulesEngine: RulesEngineModule;
   fs: ExpoFs;
   /** The underlying SQLiteDatabase handle, fully migrated. */
   db: Awaited<ReturnType<ClientModule['getDb']>>;
@@ -37,6 +39,7 @@ export async function createTestDb(): Promise<TestDb> {
   const client = require('../../src/db/client') as ClientModule;
   const queries = require('../../src/db/queries') as QueriesModule;
   const backup = require('../../src/db/backup') as BackupModule;
+  const rulesEngine = require('../../src/domain/rules-engine') as RulesEngineModule;
   const db = await client.getDb();
-  return { client, queries, backup, fs, db };
+  return { client, queries, backup, rulesEngine, fs, db };
 }
