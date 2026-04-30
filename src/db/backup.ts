@@ -1,6 +1,10 @@
 import * as FileSystem from 'expo-file-system/legacy';
 import * as SQLite from 'expo-sqlite';
 import { getDb } from './client';
+import {
+  Account, ImportBatch, Transaction, Category, Rule, Budget,
+  FoundationalRuleSetting, AppPreference,
+} from './queries';
 
 export const BACKUP_PATH      = (FileSystem.documentDirectory ?? '') + 'slo-n-ready-backup.json';
 // Tiny sidecar with just the metadata needed by the home-screen restore banner.
@@ -23,18 +27,22 @@ async function writeBackupMeta(meta: BackupMeta): Promise<void> {
   }
 }
 
+// Backups store raw DB rows (the JSON column 'conditions' is a string until
+// getRulesForAccount parses it). BackupRule reflects that on-disk shape.
+export type BackupRule = Omit<Rule, 'conditions'> & { conditions: string };
+
 export interface BackupData {
-  version:                    number;
-  exported_at:                number;
-  accounts:                   any[];
-  import_batches:             any[];
-  transactions:               any[];
-  categories:                 any[];
-  rules:                      any[];
-  budgets:                    any[];
+  version:                     number;
+  exported_at:                 number;
+  accounts:                    Account[];
+  import_batches:              ImportBatch[];
+  transactions:                Transaction[];
+  categories:                  Category[];
+  rules:                       BackupRule[];
+  budgets:                     Budget[];
   // v4.0 additions (optional so v3 backups still parse cleanly)
-  foundational_rule_settings?: any[];
-  app_preferences?:            any[];
+  foundational_rule_settings?: FoundationalRuleSetting[];
+  app_preferences?:            AppPreference[];
 }
 
 export interface BackupInfo {
@@ -84,21 +92,21 @@ export async function getBackupInfo(): Promise<BackupInfo> {
 // and the pre-migration snapshot in client.ts — when a new table is added, only
 // this function needs updating.
 export async function snapshotAllTables(db: SQLite.SQLiteDatabase): Promise<BackupData> {
-  const safe = async (sql: string): Promise<any[]> => {
-    try { return await db.getAllAsync<any>(sql); } catch { return []; }
+  const safe = async <T>(sql: string): Promise<T[]> => {
+    try { return await db.getAllAsync<T>(sql); } catch { return []; }
   };
   const [
     accounts, import_batches, transactions, categories, rules, budgets,
     foundational_rule_settings, app_preferences,
   ] = await Promise.all([
-    safe('SELECT * FROM accounts ORDER BY created_at ASC'),
-    safe('SELECT * FROM import_batches ORDER BY imported_at ASC'),
-    safe('SELECT * FROM transactions ORDER BY created_at ASC'),
-    safe('SELECT * FROM categories ORDER BY created_at ASC'),
-    safe('SELECT * FROM rules ORDER BY priority ASC'),
-    safe('SELECT * FROM budgets ORDER BY account_id, category_id, month'),
-    safe('SELECT * FROM foundational_rule_settings ORDER BY account_id, rule_id'),
-    safe('SELECT * FROM app_preferences ORDER BY key'),
+    safe<Account>                ('SELECT * FROM accounts ORDER BY created_at ASC'),
+    safe<ImportBatch>            ('SELECT * FROM import_batches ORDER BY imported_at ASC'),
+    safe<Transaction>            ('SELECT * FROM transactions ORDER BY created_at ASC'),
+    safe<Category>               ('SELECT * FROM categories ORDER BY created_at ASC'),
+    safe<BackupRule>             ('SELECT * FROM rules ORDER BY priority ASC'),
+    safe<Budget>                 ('SELECT * FROM budgets ORDER BY account_id, category_id, month'),
+    safe<FoundationalRuleSetting>('SELECT * FROM foundational_rule_settings ORDER BY account_id, rule_id'),
+    safe<AppPreference>          ('SELECT * FROM app_preferences ORDER BY key'),
   ]);
   return {
     version:                    4,

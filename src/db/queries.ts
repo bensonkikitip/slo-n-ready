@@ -1110,6 +1110,12 @@ export async function getActiveFoundationalRulesAsRules(accountId: string): Prom
 // Lightweight key/value store for app-level flags.
 // v4.0 keys: "v4_welcomed" (set to "true" after welcome sheet dismisses)
 
+export interface AppPreference {
+  key:        string;
+  value:      string;
+  updated_at: number;
+}
+
 export async function getPreference(key: string): Promise<string | null> {
   const db = await getDb();
   const row = await db.getFirstAsync<{ value: string }>(
