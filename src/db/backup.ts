@@ -2,7 +2,26 @@ import * as FileSystem from 'expo-file-system/legacy';
 import * as SQLite from 'expo-sqlite';
 import { getDb } from './client';
 
-export const BACKUP_PATH = (FileSystem.documentDirectory ?? '') + 'slo-n-ready-backup.json';
+export const BACKUP_PATH      = (FileSystem.documentDirectory ?? '') + 'slo-n-ready-backup.json';
+// Tiny sidecar with just the metadata needed by the home-screen restore banner.
+// Avoids parsing the (potentially multi-MB) backup JSON on every app launch.
+export const BACKUP_META_PATH = (FileSystem.documentDirectory ?? '') + 'slo-n-ready-backup.meta.json';
+
+interface BackupMeta {
+  version:           number;
+  exported_at:       number;
+  account_count:     number;
+  transaction_count: number;
+}
+
+async function writeBackupMeta(meta: BackupMeta): Promise<void> {
+  try {
+    await FileSystem.writeAsStringAsync(BACKUP_META_PATH, JSON.stringify(meta));
+  } catch {
+    // Sidecar failure should never block a backup; getBackupInfo falls back
+    // to reading the full file if the sidecar is missing or corrupt.
+  }
+}
 
 export interface BackupData {
   version:                    number;
@@ -26,11 +45,28 @@ export interface BackupInfo {
 }
 
 export async function getBackupInfo(): Promise<BackupInfo> {
+  const empty: BackupInfo = { exists: false, exported_at: null, account_count: 0, transaction_count: 0 };
+  // Fast path: read the small sidecar (written by writeBackup / restoreFromData).
+  try {
+    const metaInfo = await FileSystem.getInfoAsync(BACKUP_META_PATH);
+    if (metaInfo.exists) {
+      const meta: BackupMeta = JSON.parse(await FileSystem.readAsStringAsync(BACKUP_META_PATH));
+      return {
+        exists:            true,
+        exported_at:       meta.exported_at ?? null,
+        account_count:     meta.account_count ?? 0,
+        transaction_count: meta.transaction_count ?? 0,
+      };
+    }
+  } catch {
+    // Fall through to legacy path on parse error.
+  }
+  // Legacy fallback: backups written before the sidecar existed. Parse the full
+  // file once; subsequent writes will produce a sidecar so this path is rare.
   try {
     const info = await FileSystem.getInfoAsync(BACKUP_PATH);
-    if (!info.exists) return { exists: false, exported_at: null, account_count: 0, transaction_count: 0 };
-    const text = await FileSystem.readAsStringAsync(BACKUP_PATH);
-    const data: BackupData = JSON.parse(text);
+    if (!info.exists) return empty;
+    const data: BackupData = JSON.parse(await FileSystem.readAsStringAsync(BACKUP_PATH));
     return {
       exists:            true,
       exported_at:       data.exported_at ?? null,
@@ -38,7 +74,7 @@ export async function getBackupInfo(): Promise<BackupInfo> {
       transaction_count: data.transactions?.length ?? 0,
     };
   } catch {
-    return { exists: false, exported_at: null, account_count: 0, transaction_count: 0 };
+    return empty;
   }
 }
 
@@ -84,6 +120,12 @@ export async function writeBackup(): Promise<void> {
   const db = await getDb();
   const data = await snapshotAllTables(db);
   await FileSystem.writeAsStringAsync(BACKUP_PATH, JSON.stringify(data));
+  await writeBackupMeta({
+    version:           data.version,
+    exported_at:       data.exported_at,
+    account_count:     data.accounts.length,
+    transaction_count: data.transactions.length,
+  });
 }
 
 export function writeBackupSafe(): void {
@@ -179,6 +221,14 @@ export async function restoreFromData(data: BackupData): Promise<void> {
         p.key, p.value, p.updated_at,
       );
     }
+  });
+  // Refresh the sidecar so getBackupInfo reflects the restored DB without
+  // having to parse the original backup file on the next home-screen load.
+  await writeBackupMeta({
+    version:           data.version,
+    exported_at:       data.exported_at,
+    account_count:     data.accounts.length,
+    transaction_count: data.transactions.length,
   });
 }
 
