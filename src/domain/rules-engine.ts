@@ -110,10 +110,6 @@ export async function autoApplyRulesForAccount(accountId: string): Promise<Apply
 
 export async function autoApplyAllRules(): Promise<number> {
   const accounts = await getAllAccounts();
-  let total = 0;
-  for (const account of accounts) {
-    const result = await autoApplyRulesForAccount(account.id);
-    total += result.total;
-  }
-  return total;
+  const results  = await Promise.all(accounts.map(a => autoApplyRulesForAccount(a.id)));
+  return results.reduce((sum, r) => sum + r.total, 0);
 }
