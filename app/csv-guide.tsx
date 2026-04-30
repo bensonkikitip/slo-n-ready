@@ -12,8 +12,8 @@ import {
   View, Text, TouchableOpacity, ScrollView, StyleSheet, SafeAreaView,
 } from 'react-native';
 import { Stack } from 'expo-router';
-import { Sloth } from '../../src/components/Sloth';
-import { colors, font, spacing, radius } from '../../src/theme';
+import { Sloth } from '../src/components/Sloth';
+import { colors, font, spacing, radius } from '../src/theme';
 
 interface BankStep {
   text: string;

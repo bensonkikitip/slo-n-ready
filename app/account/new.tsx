@@ -255,7 +255,7 @@ export default function AddAccountScreen() {
         I'll read the column headers and auto-detect which columns hold the date, description, and amount. You can fix anything that looks wrong below.
       </Text>
 
-      <Link href="/help/csv-guide" style={styles.csvGuideLink}>
+      <Link href="/csv-guide" style={styles.csvGuideLink}>
         How do I export a CSV from my bank? →
       </Link>
 

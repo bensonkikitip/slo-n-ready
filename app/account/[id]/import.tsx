@@ -163,7 +163,7 @@ export default function ImportScreen() {
             <Text style={styles.pickBody}>
               Hand me a CSV from your bank and I'll show you a preview before saving anything.
             </Text>
-            <Link href="/help/csv-guide" style={styles.csvGuideLink}>
+            <Link href="/csv-guide" style={styles.csvGuideLink}>
               How do I export a CSV from my bank? →
             </Link>
             {loading
