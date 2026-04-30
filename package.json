@@ -5,7 +5,7 @@
   "scripts": {
     "start": "expo start",
     "android": "expo run:android",
-    "ios": "expo run:ios",
+    "ios": "xcrun simctl boot 7981E5F1-7920-42D3-BE73-44D68A65F28A 2>/dev/null; open -a Simulator && expo start --ios",
     "web": "expo start --web",
     "test": "jest",
     "typecheck": "tsc --noEmit"
