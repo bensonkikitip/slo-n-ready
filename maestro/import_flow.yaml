@@ -1,0 +1,27 @@
+appId: com.kiip.slonready
+---
+# Precondition: run the full onboarding so "Chase Freedom" exists with Feb 2026 data.
+- runFlow: "maestro/onboarding_new_user.yaml"
+
+# ── We're on the Chase Freedom account detail screen ─────────────────────────
+# Tap the floating Import CSV button.
+- tapOn: "Import CSV"
+
+# ── Screen: import/pick ───────────────────────────────────────────────────────
+- assertVisible: "Choose File…"
+- tapOn: "Choose File…"
+- inputFile: "maestro/fixtures/sample_import.csv"
+
+# ── Screen: import/preview ───────────────────────────────────────────────────
+# sample_import.csv has 12 rows — all new (different dates from the Feb 2026 data).
+- assertVisible: "12 transactions found"
+- tapOn: "Import 12 Transactions"
+
+# ── Screen: import/done ───────────────────────────────────────────────────────
+- assertVisible: "All done — nice work!"
+- assertVisible: "Added"
+- assertVisible: "12"
+
+# Return to the account detail screen.
+- tapOn: "Back to Account"
+- assertVisible: "Chase Freedom"

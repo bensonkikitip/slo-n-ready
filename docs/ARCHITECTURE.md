@@ -305,7 +305,7 @@ Rows are never deleted on drop — keeping the row preserves audit trail and let
 - The file-system mock at [`tests/__mocks__/expo-file-system-legacy.ts`](../tests/__mocks__/expo-file-system-legacy.ts) is in-memory; backup tests can read what they wrote without touching disk.
 - Use [`tests/helpers/db.ts`](../tests/helpers/db.ts)'s `createTestDb()` in `beforeEach`. It calls `jest.resetModules()`, resets both mocks, and re-requires `client` / `queries` / `backup` / `rulesEngine` — so every test starts on a fresh, fully-migrated DB. Always call query functions through the returned modules, not via top-level imports (those would point at a stale singleton).
 - DB tests live under [`tests/db/`](../tests/db/); domain/parser tests stay where they are.
-- UI is exercised manually in Expo Go — there are no React Native render tests yet. (Adding them is a v4.3+ project.)
+- E2E flows are in `maestro/` and run against a live simulator with `maestro test maestro/<flow>.yaml`. They test complete user journeys (onboarding, import, categorization, rules, backup, period navigation) against the real app — no mocking. Requires Maestro ≥ 1.38 (`brew install maestro`). Fixture CSVs are under `maestro/fixtures/` (anonymized, no real personal data). See the ship checklist in [CLAUDE.md](../CLAUDE.md) for which flows must pass before each release.
 
 **Coverage map:**
 

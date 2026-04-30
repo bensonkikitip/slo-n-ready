@@ -1,0 +1,35 @@
+appId: com.kiip.slonready
+---
+# Wipe all app data so this always starts from a clean new-user state.
+- launchApp:
+    clearState: true
+
+# ── Screen: onboarding/intro ──────────────────────────────────────────────────
+- assertVisible: "Hi, I'm Rachey."
+- tapOn: "Let's set up your categories →"
+
+# ── Screen: onboarding/categories ─────────────────────────────────────────────
+- assertVisible: "Pick your starter categories"
+# Default categories are pre-checked — tap Save without changing anything.
+- tapOn: "Save & continue →"
+
+# ── Screen: account/new ───────────────────────────────────────────────────────
+- assertVisible: "ACCOUNT NAME"
+- tapOn: "Credit Card"
+# Type the account name into the name field (identified by its placeholder).
+- tapOn: "e.g. Chase Checking, Amex Gold"
+- inputText: "Chase Freedom"
+# Open the document picker and inject the fixture CSV.
+- tapOn: "Choose a sample CSV from your bank"
+- inputFile: "maestro/fixtures/sample_onboarding.csv"
+# Column detection should succeed and show the preview table.
+- assertVisible: "PREVIEW"
+- tapOn: "Add Account & Import →"
+
+# ── Screen: onboarding/foundational-rules ─────────────────────────────────────
+- assertVisible: "Want me to recognize what I can?"
+- tapOn: "Skip for now"
+
+# ── Screen: account/[id] — onboarding complete ────────────────────────────────
+- assertVisible: "Chase Freedom"
+- assertVisible: "Import CSV"

@@ -1,0 +1,28 @@
+appId: com.kiip.slonready
+---
+# Precondition: run import_flow which gives us Feb 2026 data (onboarding)
+# AND Mar 2026 data (second import). Both months are within the default 6-month window.
+- runFlow: "maestro/import_flow.yaml"
+
+# ── We're on Chase Freedom account detail, showing March 2026 (most recent) ───
+- assertVisible: "March 2026"
+
+# ── Open the period picker ───────────────────────────────────────────────────
+- tapOn: "March 2026"
+- assertVisible: "Select Dates"
+
+# ── Switch to February 2026 ──────────────────────────────────────────────────
+- tapOn: "February 2026"
+
+# ── Transactions for Feb 2026 are now showing ────────────────────────────────
+# COSTCO WHSE is in Feb 2026 (from sample_onboarding.csv) but NOT in Mar 2026.
+- assertVisible: "COSTCO WHSE"
+
+# ── Open picker again and switch back to March 2026 ──────────────────────────
+- tapOn: "February 2026"
+- assertVisible: "Select Dates"
+- tapOn: "March 2026"
+
+# ── March 2026 transactions now showing ──────────────────────────────────────
+# LYFT is in Mar 2026 (from sample_import.csv) but NOT in Feb 2026.
+- assertVisible: "LYFT"

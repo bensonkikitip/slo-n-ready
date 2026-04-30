@@ -1,0 +1,20 @@
+appId: com.kiip.slonready
+---
+# Precondition: onboarding done, Feb 2026 transactions imported, no categories assigned yet.
+- runFlow: "maestro/onboarding_new_user.yaml"
+
+# ── Screen: account/[id] — transaction list ───────────────────────────────────
+# Tap the top transaction (COSTCO WHSE is the most recent in Feb 2026).
+- tapOn: "COSTCO WHSE"
+
+# ── CategoryPickerSheet opens ─────────────────────────────────────────────────
+# The starter categories from onboarding are in the list.
+- assertVisible: "Groceries"
+- tapOn: "Groceries"
+
+# ── Alert: "Create a rule?" (suggest_rules is on by default) ─────────────────
+- tapOn: "No thanks"
+
+# ── Back on account detail — COSTCO WHSE now shows the Groceries badge ────────
+# Verify by checking the category label is visible on screen.
+- assertVisible: "Groceries"

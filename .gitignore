@@ -51,3 +51,4 @@ slo-n-ready-backup.json
 Screenshots for AppStore/
 # Exception: synthetic test fixtures are safe to commit (no real financial data)
 !tests/fixtures/*.csv
+!maestro/fixtures/*.csv

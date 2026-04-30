@@ -1,0 +1,25 @@
+appId: com.kiip.slonready
+---
+# Precondition: onboarding done so there is data to back up.
+- runFlow: "maestro/onboarding_new_user.yaml"
+
+# ── Navigate to Backup screen via home screen header ─────────────────────────
+# Go back to home first (swipe back or press back button).
+- pressKey: Back
+- assertVisible: "Slo N Ready"
+- tapOn: "Backup"
+
+# ── Screen: backup ────────────────────────────────────────────────────────────
+- assertVisible: "Backup & Restore"
+- assertVisible: "Export Backup…"
+
+# ── Tap Export — this writes the backup file then opens the share sheet ───────
+- tapOn: "Export Backup…"
+
+# ── Dismiss the iOS share sheet ──────────────────────────────────────────────
+# The share sheet has a "Cancel" button at the bottom.
+- tapOn: "Cancel"
+
+# ── Back on backup screen — status now shows last saved date ─────────────────
+- assertVisible: "Last saved"
+- assertVisible: "1 account"

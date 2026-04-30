@@ -1,0 +1,37 @@
+appId: com.kiip.slonready
+---
+# Precondition: onboarding done, Feb 2026 transactions imported (includes STARBUCKS).
+- runFlow: "maestro/onboarding_new_user.yaml"
+
+# ── Navigate to Rules screen via the ••• menu ─────────────────────────────────
+- tapOn: "•••"
+- tapOn: "Rules"
+- assertVisible: "Rules"
+
+# ── Tap "Add" in the header to open the rule creation sheet ──────────────────
+- tapOn: "Add"
+- assertVisible: "Add Rule"
+
+# ── Fill in the match text ────────────────────────────────────────────────────
+# The text input has placeholder "e.g. whole foods".
+- tapOn: "e.g. whole foods"
+- inputText: "starbucks"
+
+# ── Assign a category ────────────────────────────────────────────────────────
+- tapOn: "Select category…"
+- assertVisible: "Groceries"
+- tapOn: "Groceries"
+
+# ── Save the rule ─────────────────────────────────────────────────────────────
+- tapOn: "Add Rule"
+
+# ── Alert: "Rule saved!" — tap Apply Now to categorize existing transactions ──
+- assertVisible: "Rule saved!"
+- tapOn: "Apply Now"
+
+# ── Second alert: "Done!" — confirms how many transactions were categorized ───
+- assertVisible: "Done!"
+- tapOn: "OK"
+
+# ── Back on rules list — the new rule should appear ───────────────────────────
+- assertVisible: "Contains"
