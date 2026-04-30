@@ -208,37 +208,55 @@ export async function importTransactions(
   const importedIds = new Set(rows.map((r) => r.id));
 
   await db.withTransactionAsync(async () => {
-    // --- Pass 1: insert new rows, update pending→cleared for existing rows ---
-    for (const row of rows) {
-      const result = await db.runAsync(
+    // --- Pass 1a: find which incoming IDs already exist ---
+    const existingIds = new Set<string>();
+    const ID_LOOKUP_CHUNK = 500;
+    for (let i = 0; i < rows.length; i += ID_LOOKUP_CHUNK) {
+      const chunk = rows.slice(i, i + ID_LOOKUP_CHUNK);
+      const placeholders = chunk.map(() => '?').join(', ');
+      const found = await db.getAllAsync<{ id: string }>(
+        `SELECT id FROM transactions WHERE account_id = ? AND id IN (${placeholders})`,
+        accountId, ...chunk.map(r => r.id),
+      );
+      for (const r of found) existingIds.add(r.id);
+    }
+
+    // --- Pass 1b: bulk INSERT OR IGNORE the new rows ---
+    // 10 cols × 75 rows = 750 params, under SQLite's 999-variable limit
+    const newRows = rows.filter(r => !existingIds.has(r.id));
+    inserted = newRows.length;
+    const INSERT_CHUNK = 75;
+    const newRowCols = '(?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)';
+    for (let i = 0; i < newRows.length; i += INSERT_CHUNK) {
+      const chunk = newRows.slice(i, i + INSERT_CHUNK);
+      const placeholders = chunk.map(() => newRowCols).join(', ');
+      const params = chunk.flatMap(r => [
+        r.id, accountId, r.date, r.amount_cents, r.description, r.original_description,
+        r.is_pending ? 1 : 0, batchId, now,
+      ]);
+      await db.runAsync(
         `INSERT OR IGNORE INTO transactions
            (id, account_id, date, amount_cents, description, original_description,
             is_pending, dropped_at, import_batch_id, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)`,
-        row.id,
-        accountId,
-        row.date,
-        row.amount_cents,
-        row.description,
-        row.original_description,
-        row.is_pending ? 1 : 0,
-        batchId,
-        now,
+         VALUES ${placeholders}`,
+        ...params,
       );
+    }
 
-      if (result.changes > 0) {
-        inserted++;
-      } else if (!row.is_pending) {
-        // Row already exists. If the incoming data says it cleared, update the flag.
-        // Only touches is_pending; leaves everything else (description, amount, etc.) intact.
-        const update = await db.runAsync(
-          `UPDATE transactions
-             SET is_pending = 0
-           WHERE id = ? AND is_pending = 1 AND dropped_at IS NULL`,
-          row.id,
-        );
-        if (update.changes > 0) cleared++;
-      }
+    // --- Pass 1c: bulk-clear existing rows whose new copy isn't pending ---
+    const clearCandidateIds = rows
+      .filter(r => existingIds.has(r.id) && !r.is_pending)
+      .map(r => r.id);
+    const CLEAR_CHUNK = 500;
+    for (let i = 0; i < clearCandidateIds.length; i += CLEAR_CHUNK) {
+      const chunk = clearCandidateIds.slice(i, i + CLEAR_CHUNK);
+      const placeholders = chunk.map(() => '?').join(', ');
+      const result = await db.runAsync(
+        `UPDATE transactions SET is_pending = 0
+         WHERE id IN (${placeholders}) AND is_pending = 1 AND dropped_at IS NULL`,
+        ...chunk,
+      );
+      cleared += result.changes ?? 0;
     }
 
     // --- Pass 2: detect dropped pendings ---
@@ -254,20 +272,19 @@ export async function importTransactions(
         `SELECT id FROM transactions
          WHERE account_id = ? AND is_pending = 1 AND dropped_at IS NULL
            AND date >= ? AND date <= ?`,
-        accountId,
-        minDate,
-        maxDate,
+        accountId, minDate, maxDate,
       );
 
-      for (const p of pendingInRange) {
-        if (!importedIds.has(p.id)) {
-          await db.runAsync(
-            `UPDATE transactions SET dropped_at = ? WHERE id = ?`,
-            now,
-            p.id,
-          );
-          dropped++;
-        }
+      const droppedIds = pendingInRange.filter(p => !importedIds.has(p.id)).map(p => p.id);
+      const DROP_CHUNK = 500;
+      for (let i = 0; i < droppedIds.length; i += DROP_CHUNK) {
+        const chunk = droppedIds.slice(i, i + DROP_CHUNK);
+        const placeholders = chunk.map(() => '?').join(', ');
+        const result = await db.runAsync(
+          `UPDATE transactions SET dropped_at = ? WHERE id IN (${placeholders})`,
+          now, ...chunk,
+        );
+        dropped += result.changes ?? 0;
       }
     }
   });
