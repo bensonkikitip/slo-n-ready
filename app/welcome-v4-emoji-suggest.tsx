@@ -31,21 +31,30 @@ export default function WelcomeV4EmojiSuggestScreen() {
   const [rows,    setRows]    = useState<SuggestionRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving,  setSaving]  = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
+    let active = true;
     (async () => {
-      const cats = await getAllCategories();
-      const suggestions = suggestEmojisForCategories(cats);
-      setRows(suggestions.map(s => ({
-        id:         s.id,
-        name:       s.name,
-        current:    cats.find(c => c.id === s.id)?.emoji ?? null,
-        suggestion: s.suggestion,
-        selected:   s.suggestion,  // default: accept the suggestion
-        expanded:   false,
-      })));
-      setLoading(false);
+      try {
+        const cats = await getAllCategories();
+        if (!active) return;
+        const suggestions = suggestEmojisForCategories(cats);
+        setRows(suggestions.map(s => ({
+          id:         s.id,
+          name:       s.name,
+          current:    cats.find(c => c.id === s.id)?.emoji ?? null,
+          suggestion: s.suggestion,
+          selected:   s.suggestion,  // default: accept the suggestion
+          expanded:   false,
+        })));
+      } catch (e: any) {
+        if (active) setLoadError(e?.message ?? 'Could not load categories.');
+      } finally {
+        if (active) setLoading(false);
+      }
     })();
+    return () => { active = false; };
   }, []);
 
   function toggle(id: string) {
@@ -73,9 +82,28 @@ export default function WelcomeV4EmojiSuggestScreen() {
 
   if (loading) {
     return (
-      <View style={styles.center}>
-        <ActivityIndicator color={colors.primary} />
-      </View>
+      <>
+        <Stack.Screen options={{ presentation: 'modal', headerShown: false }} />
+        <View style={styles.center}>
+          <ActivityIndicator color={colors.primary} />
+        </View>
+      </>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <>
+        <Stack.Screen options={{ presentation: 'modal', headerShown: false }} />
+        <SafeAreaView style={styles.container}>
+          <View style={styles.center}>
+            <Text style={styles.emptyText}>Couldn't load categories.{'\n'}{loadError}</Text>
+            <TouchableOpacity style={styles.ghostBtn} onPress={() => router.back()}>
+              <Text style={styles.ghostBtnText}>Go back</Text>
+            </TouchableOpacity>
+          </View>
+        </SafeAreaView>
+      </>
     );
   }
 
