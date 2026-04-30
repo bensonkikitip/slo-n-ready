@@ -11,12 +11,13 @@ import {
 } from '@expo-google-fonts/nunito';
 import { colors, font, spacing, radius } from '../src/theme';
 import { SplashSlogan } from '../src/components/SplashSlogan';
+import { Sloth } from '../src/components/Sloth';
 
 export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
   const router = useRouter();
   return (
     <View style={eb.container}>
-      <Text style={eb.emoji}>😔</Text>
+      <Sloth sloth="box" size={120} />
       <Text style={eb.title}>Something went wrong</Text>
       <Text style={eb.body}>{error.message}</Text>
       <TouchableOpacity style={eb.btn} onPress={retry} activeOpacity={0.8}>
@@ -34,11 +35,10 @@ export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
 }
 
 const eb = StyleSheet.create({
-  container:       { flex: 1, backgroundColor: colors.background, alignItems: 'center', justifyContent: 'center', padding: spacing.xl },
-  emoji:           { fontSize: 48, marginBottom: spacing.md },
-  title:           { fontFamily: font.bold, fontSize: 20, color: colors.text, marginBottom: spacing.sm, textAlign: 'center' },
-  body:            { fontFamily: font.regular, fontSize: 14, color: colors.textSecondary, marginBottom: spacing.xl, textAlign: 'center', lineHeight: 20 },
-  btn:             { backgroundColor: colors.primary, borderRadius: radius.full, paddingVertical: 14, paddingHorizontal: spacing.xl, marginBottom: spacing.sm, width: '100%', alignItems: 'center' },
+  container:       { flex: 1, backgroundColor: colors.background, alignItems: 'center', justifyContent: 'center', padding: spacing.xl, gap: spacing.md },
+  title:           { fontFamily: font.bold, fontSize: 20, color: colors.text, marginTop: spacing.md, textAlign: 'center' },
+  body:            { fontFamily: font.regular, fontSize: 14, color: colors.textSecondary, marginBottom: spacing.lg, textAlign: 'center', lineHeight: 20 },
+  btn:             { backgroundColor: colors.primary, borderRadius: radius.full, paddingVertical: 14, paddingHorizontal: spacing.xl, width: '100%', alignItems: 'center' },
   btnSecondary:    { backgroundColor: 'transparent', borderWidth: 1, borderColor: colors.border },
   btnText:         { fontFamily: font.bold, fontSize: 15, color: colors.textOnColor },
   btnTextSecondary:{ color: colors.textSecondary },
