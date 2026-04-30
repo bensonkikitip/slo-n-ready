@@ -146,6 +146,29 @@ export async function readBackupFromPath(uri: string): Promise<BackupData | null
   }
 }
 
+// Multi-row INSERT OR REPLACE in chunks. SQLite caps bound parameters at 999,
+// so chunkSize × column count must stay below that limit.
+async function batchInsertOrReplace(
+  db: SQLite.SQLiteDatabase,
+  table: string,
+  columns: string[],
+  rows: (string | number | null)[][],
+  chunkSize: number,
+): Promise<void> {
+  if (rows.length === 0) return;
+  const colList         = columns.join(', ');
+  const rowPlaceholders = `(${columns.map(() => '?').join(', ')})`;
+  for (let i = 0; i < rows.length; i += chunkSize) {
+    const chunk        = rows.slice(i, i + chunkSize);
+    const placeholders = chunk.map(() => rowPlaceholders).join(', ');
+    const params       = chunk.flat();
+    await db.runAsync(
+      `INSERT OR REPLACE INTO ${table} (${colList}) VALUES ${placeholders}`,
+      ...params,
+    );
+  }
+}
+
 export async function restoreFromData(data: BackupData): Promise<void> {
   const db = await getDb();
   await db.withTransactionAsync(async () => {
@@ -159,68 +182,78 @@ export async function restoreFromData(data: BackupData): Promise<void> {
     await db.execAsync('DELETE FROM categories');
     await db.execAsync('DELETE FROM accounts');
 
-    for (const a of data.accounts) {
-      await db.runAsync(
-        'INSERT OR REPLACE INTO accounts (id, name, type, csv_format, column_config, created_at, suggest_rules) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    await batchInsertOrReplace(db, 'accounts',
+      ['id', 'name', 'type', 'csv_format', 'column_config', 'created_at', 'suggest_rules'],
+      data.accounts.map(a => [
         a.id, a.name, a.type, a.csv_format, a.column_config ?? null, a.created_at, a.suggest_rules ?? 1,
-      );
-    }
+      ]),
+      100,
+    );
 
-    for (const c of (data.categories ?? [])) {
-      await db.runAsync(
-        'INSERT OR REPLACE INTO categories (id, name, color, emoji, description, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+    await batchInsertOrReplace(db, 'categories',
+      ['id', 'name', 'color', 'emoji', 'description', 'created_at'],
+      (data.categories ?? []).map(c => [
         c.id, c.name, c.color, c.emoji ?? null, c.description ?? null, c.created_at,
-      );
-    }
+      ]),
+      100,
+    );
 
-    for (const r of (data.rules ?? [])) {
-      await db.runAsync(
-        'INSERT OR REPLACE INTO rules (id, account_id, category_id, match_type, match_text, priority, created_at, logic, conditions) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    await batchInsertOrReplace(db, 'rules',
+      ['id', 'account_id', 'category_id', 'match_type', 'match_text', 'priority', 'created_at', 'logic', 'conditions'],
+      (data.rules ?? []).map(r => [
         r.id, r.account_id, r.category_id, r.match_type, r.match_text, r.priority, r.created_at,
         r.logic ?? 'AND', r.conditions ?? '[]',
-      );
-    }
+      ]),
+      100,
+    );
 
-    for (const b of (data.budgets ?? [])) {
-      await db.runAsync(
-        'INSERT OR REPLACE INTO budgets (account_id, category_id, month, amount_cents) VALUES (?, ?, ?, ?)',
+    await batchInsertOrReplace(db, 'budgets',
+      ['account_id', 'category_id', 'month', 'amount_cents'],
+      (data.budgets ?? []).map(b => [
         b.account_id, b.category_id, b.month, b.amount_cents,
-      );
-    }
+      ]),
+      200,
+    );
 
-    for (const b of (data.import_batches ?? [])) {
-      await db.runAsync(
-        'INSERT OR REPLACE INTO import_batches (id, account_id, filename, imported_at, rows_total, rows_inserted, rows_skipped_duplicate, rows_cleared, rows_dropped) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    await batchInsertOrReplace(db, 'import_batches',
+      ['id', 'account_id', 'filename', 'imported_at', 'rows_total', 'rows_inserted', 'rows_skipped_duplicate', 'rows_cleared', 'rows_dropped'],
+      (data.import_batches ?? []).map(b => [
         b.id, b.account_id, b.filename ?? null, b.imported_at,
         b.rows_total, b.rows_inserted, b.rows_skipped_duplicate,
         b.rows_cleared ?? 0, b.rows_dropped ?? 0,
-      );
-    }
+      ]),
+      100,
+    );
 
-    for (const t of data.transactions) {
-      await db.runAsync(
-        'INSERT OR REPLACE INTO transactions (id, account_id, date, amount_cents, description, original_description, is_pending, dropped_at, import_batch_id, created_at, category_id, category_set_manually, applied_rule_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    // 13 cols × 75 rows = 975 params, under SQLite's 999 limit
+    await batchInsertOrReplace(db, 'transactions',
+      ['id', 'account_id', 'date', 'amount_cents', 'description', 'original_description', 'is_pending', 'dropped_at', 'import_batch_id', 'created_at', 'category_id', 'category_set_manually', 'applied_rule_id'],
+      data.transactions.map(t => [
         t.id, t.account_id, t.date, t.amount_cents, t.description,
         t.original_description, t.is_pending, t.dropped_at ?? null,
         t.import_batch_id, t.created_at,
         t.category_id ?? null, t.category_set_manually ?? 0, t.applied_rule_id ?? null,
-      );
-    }
+      ]),
+      75,
+    );
 
-    // v4.0 tables — optional in backup (absent in v3 and earlier backups)
-    for (const s of (data.foundational_rule_settings ?? [])) {
-      await db.runAsync(
-        'INSERT OR REPLACE INTO foundational_rule_settings (account_id, rule_id, category_id, enabled, created_at) VALUES (?, ?, ?, ?, ?)',
-        s.account_id, s.rule_id, s.category_id ?? null, s.enabled ?? 0, s.created_at,
-      );
-    }
+    // v4.0 tables — optional in backup (absent in v3 and earlier backups).
+    // sort_order added in migration 11; default to 0 for older backups.
+    await batchInsertOrReplace(db, 'foundational_rule_settings',
+      ['account_id', 'rule_id', 'category_id', 'enabled', 'sort_order', 'created_at'],
+      (data.foundational_rule_settings ?? []).map(s => [
+        s.account_id, s.rule_id, s.category_id ?? null, s.enabled ?? 0, s.sort_order ?? 0, s.created_at,
+      ]),
+      100,
+    );
 
-    for (const p of (data.app_preferences ?? [])) {
-      await db.runAsync(
-        'INSERT OR REPLACE INTO app_preferences (key, value, updated_at) VALUES (?, ?, ?)',
+    await batchInsertOrReplace(db, 'app_preferences',
+      ['key', 'value', 'updated_at'],
+      (data.app_preferences ?? []).map(p => [
         p.key, p.value, p.updated_at,
-      );
-    }
+      ]),
+      200,
+    );
   });
   // Refresh the sidecar so getBackupInfo reflects the restored DB without
   // having to parse the original backup file on the next home-screen load.
