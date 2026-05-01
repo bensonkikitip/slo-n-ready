@@ -353,6 +353,9 @@ export default function AccountsListScreen() {
           title: 'Slo N Ready',
           headerRight: () => (
             <View style={styles.headerBtnsRight}>
+              <TouchableOpacity onPress={() => router.push('/trends')} hitSlop={12}>
+                <Text style={styles.categoriesBtn}>Trends</Text>
+              </TouchableOpacity>
               <TouchableOpacity onPress={() => router.push('/categories')} hitSlop={12}>
                 <Text style={styles.categoriesBtn}>Categories</Text>
               </TouchableOpacity>

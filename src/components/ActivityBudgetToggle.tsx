@@ -22,7 +22,7 @@ export function ActivityBudgetToggle({ value, onChange }: Props) {
         onPress={() => onChange('budget')}
         activeOpacity={0.7}
       >
-        <Text style={[styles.tabText, value === 'budget' && styles.tabTextActive]}>Budget</Text>
+        <Text style={[styles.tabText, value === 'budget' && styles.tabTextActive]}>Goals</Text>
       </TouchableOpacity>
     </View>
   );

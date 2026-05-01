@@ -143,6 +143,22 @@ export async function getBudgetsForAllAccountsYearByAccount(
   );
 }
 
+// Cross-account spending totals for a single month, used by the Trends screen.
+export async function getCategorySpendingForMonth(
+  month: string, // 'YYYY-MM'
+): Promise<Array<{ category_id: string; total_cents: number }>> {
+  const db = await getDb();
+  return db.getAllAsync<{ category_id: string; total_cents: number }>(
+    `SELECT category_id, SUM(amount_cents) AS total_cents
+     FROM transactions
+     WHERE substr(date, 1, 7) = ?
+       AND dropped_at IS NULL
+       AND category_id IS NOT NULL
+     GROUP BY category_id`,
+    month,
+  );
+}
+
 // All actuals for a year across all accounts, keyed per-account.
 // Caller groups by account_id client-side to avoid N round-trips on the home screen.
 export async function getActualsByCategoryMonthAllAccountsByAccount(

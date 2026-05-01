@@ -93,6 +93,14 @@ Run before every `eas build` attempt. These catch the dependency issues that sil
 12. `eas submit --platform ios --latest` — pushes the build to App Store Connect.
 13. In **App Store Connect**: add the build to the version, fill in "What's New", then click **Submit for Review**.
 
+### App Review demo file (required)
+14. **Always attach demo credentials / notes for the reviewer.** In the "Notes for App Review" field (App Store Connect → App Review Information), include:
+    - A link to the sample CSV so the reviewer can test the import flow
+    - The sample CSV lives at `maestro/fixtures/sample_onboarding.csv` — host it as a public GitHub Gist and paste the Raw URL
+    - Step-by-step instructions: download the file → open Slo N Ready → complete onboarding → on "Add Account" tap "Choose a sample CSV from your bank" → select the file → import
+    - Note that all data stays on-device and no credentials are required
+    - Apple **will reject or stall the review** if they can't exercise the core import feature — this step is non-negotiable.
+
 ## Critical conventions (don't violate without asking)
 
 - **Money is always `INTEGER` cents.** Never store dollars as floats. Negative = expense / debit, positive = income / credit. Use `centsToDollars` / `parseDollarsToCents` in `src/domain/money.ts`.
