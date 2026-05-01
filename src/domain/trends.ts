@@ -227,6 +227,6 @@ export function averageSpendingPeriods(
 
   return Array.from(totals.entries()).map(([category_id, sum]) => ({
     category_id,
-    total_cents: sum / n,
+    total_cents: Math.round(sum / n), // keep cents as integers; centsToDollars expects ints
   }));
 }

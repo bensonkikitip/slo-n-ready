@@ -32,9 +32,12 @@ export function RacheyInsightCard({
 
   const curAbs  = Math.abs(currentCents);
   const prevAbs = Math.abs(previousCents);
-  const diffAbs = Math.abs(curAbs - prevAbs);
+  // Round so averages (3-month avg mode) don't produce fractional cents.
+  const diffAbs = Math.round(Math.abs(curAbs - prevAbs));
   const deltaColor = curAbs <= prevAbs ? colors.income : colors.expense;
-  const deltaSign  = curAbs < prevAbs ? '-' : curAbs > prevAbs ? '+' : '';
+  // deltaSign is the visual prefix; centsToDollars receives a positive diffAbs
+  // so there is no double-negative when spending decreased.
+  const deltaSign  = curAbs < prevAbs ? '−' : curAbs > prevAbs ? '+' : '';
 
   return (
     <View style={styles.card}>
@@ -58,7 +61,7 @@ export function RacheyInsightCard({
           <>
             <View style={styles.deltaPill}>
               <Text style={[styles.deltaText, { color: deltaColor }]}>
-                {deltaSign}{centsToDollars(-diffAbs)}
+                {deltaSign}{centsToDollars(diffAbs)}
               </Text>
             </View>
 
