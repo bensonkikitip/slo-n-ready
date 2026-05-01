@@ -239,8 +239,10 @@ export default function AllAccountsScreen() {
   );
 
   const budgetSummary = useMemo(
-    () => computeVarianceSummary(budgetCategoryRows),
-    [budgetCategoryRows],
+    () => computeVarianceSummary(
+      budgetCategoryRows.filter(r => !categoryMap[r.category_id]?.exclude_from_totals),
+    ),
+    [budgetCategoryRows, categoryMap],
   );
 
   const hasAnyBudget = useMemo(() => {
