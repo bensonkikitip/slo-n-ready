@@ -92,6 +92,11 @@ export default function AccountsListScreen() {
   }
 
   // ── derived data (budget view) ────────────────────────────────────────────
+  const categoryMap = useMemo(
+    () => Object.fromEntries(categories.map(c => [c.id, c])),
+    [categories],
+  );
+
   const monthsInRange = useMemo(
     () => monthsForPeriod(filterMode, selectedMonth, selectedYear),
     [filterMode, selectedMonth, selectedYear],
@@ -120,10 +125,12 @@ export default function AccountsListScreen() {
         a.map(r => ({ category_id: r.category_id, month: r.month, total_cents: r.total_cents })),
         monthsInRange,
       );
-      result.set(acct.id, computeVarianceSummary(rows));
+      result.set(acct.id, computeVarianceSummary(
+        rows.filter(r => !categoryMap[r.category_id]?.exclude_from_totals),
+      ));
     }
     return result;
-  }, [viewMode, allBudgetRows, allActualsRows, accounts, monthsInRange]);
+  }, [viewMode, allBudgetRows, allActualsRows, accounts, monthsInRange, categoryMap]);
 
   const allAccountsBudgetSummary = useMemo(() => {
     if (viewMode !== 'budget' || monthsInRange.length === 0) return null;
@@ -132,8 +139,10 @@ export default function AccountsListScreen() {
       allActualsRows.map(r => ({ category_id: r.category_id, month: r.month, total_cents: r.total_cents })),
       monthsInRange,
     );
-    return computeVarianceSummary(rows);
-  }, [viewMode, allBudgetRows, allActualsRows, monthsInRange]);
+    return computeVarianceSummary(
+      rows.filter(r => !categoryMap[r.category_id]?.exclude_from_totals),
+    );
+  }, [viewMode, allBudgetRows, allActualsRows, monthsInRange, categoryMap]);
 
   // ── existing helpers ──────────────────────────────────────────────────────
   async function loadSummaries(accts: Account[], mode: FilterMode, period: string, catIds: string[] = []) {
