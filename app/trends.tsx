@@ -128,11 +128,14 @@ export default function TrendsScreen() {
       const rows = buildTrendRows(currentData, previousData, categories);
 
       // Total expenses only (negative amounts) for overall message
+      // Excluded categories are intentionally omitted so transfers/investments
+      // don't skew the Rachey overall spending message
+      const catMapForFilter = new Map(categories.map(c => [c.id, c]));
       const totalCurrentCents  = rows
-        .filter(r => r.current_cents  < 0)
+        .filter(r => r.current_cents  < 0 && !catMapForFilter.get(r.category_id)?.exclude_from_totals)
         .reduce((s, r) => s + r.current_cents, 0);
       const totalPreviousCents = rows
-        .filter(r => r.previous_cents < 0)
+        .filter(r => r.previous_cents < 0 && !catMapForFilter.get(r.category_id)?.exclude_from_totals)
         .reduce((s, r) => s + r.previous_cents, 0);
 
       setData({

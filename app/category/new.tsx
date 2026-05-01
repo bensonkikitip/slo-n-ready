@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity,
-  ScrollView, StyleSheet, Alert,
+  ScrollView, StyleSheet, Alert, Switch,
 } from 'react-native';
 import { useRouter, Stack } from 'expo-router';
 import { insertCategory } from '../../src/db/queries';
@@ -18,8 +18,9 @@ export default function NewCategoryScreen() {
   const [name,           setName]           = useState('');
   const [selectedColor,  setSelectedColor]  = useState<string>(CATEGORY_COLORS[0].hex);
   const [selectedEmoji,  setSelectedEmoji]  = useState<string | null>(null);
-  const [description,    setDescription]    = useState('');
-  const [saving,         setSaving]         = useState(false);
+  const [description,       setDescription]       = useState('');
+  const [excludeFromTotals, setExcludeFromTotals] = useState(false);
+  const [saving,            setSaving]            = useState(false);
 
   async function handleSave() {
     const trimmed = name.trim();
@@ -27,11 +28,12 @@ export default function NewCategoryScreen() {
     setSaving(true);
     try {
       await insertCategory({
-        id:          Crypto.randomUUID(),
-        name:        trimmed,
-        color:       selectedColor,
-        emoji:       selectedEmoji,
-        description: description.trim() || null,
+        id:                 Crypto.randomUUID(),
+        name:               trimmed,
+        color:              selectedColor,
+        emoji:              selectedEmoji,
+        description:        description.trim() || null,
+        exclude_from_totals: excludeFromTotals ? 1 : 0,
       });
       router.back();
     } catch (e: any) {
@@ -98,6 +100,19 @@ export default function NewCategoryScreen() {
           numberOfLines={2}
         />
 
+        <View style={[styles.toggleRow, { marginTop: spacing.lg }]}>
+          <View style={styles.toggleText}>
+            <Text style={styles.toggleTitle}>Exclude from income &amp; expense totals</Text>
+            <Text style={styles.toggleSubtitle}>Use for transfers, investments, etc.</Text>
+          </View>
+          <Switch
+            value={excludeFromTotals}
+            onValueChange={setExcludeFromTotals}
+            trackColor={{ false: colors.border, true: colors.primary }}
+            thumbColor={colors.surface}
+          />
+        </View>
+
         <Text style={[styles.label, { marginTop: spacing.lg }]}>Color</Text>
         <View style={styles.colorGrid}>
           {CATEGORY_COLORS.map(c => (
@@ -162,6 +177,20 @@ const styles = StyleSheet.create({
   emojiChipText:         { fontFamily: font.semiBold, fontSize: 12, color: colors.textSecondary },
   emojiChipTextSelected: { color: colors.primary },
   emojiGlyph:            { fontSize: 20 },
+
+  toggleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.surface,
+    borderRadius: radius.md,
+    borderWidth: 1, borderColor: colors.border,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 12,
+    gap: spacing.md,
+  },
+  toggleText:     { flex: 1 },
+  toggleTitle:    { fontFamily: font.semiBold, fontSize: 14, color: colors.text },
+  toggleSubtitle: { fontFamily: font.regular,  fontSize: 12, color: colors.textTertiary, marginTop: 2 },
 
   colorGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   colorSwatch: {

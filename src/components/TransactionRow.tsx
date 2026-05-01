@@ -53,6 +53,11 @@ export function TransactionRow({ transaction, accountBadge, category, onPress, b
           {category && !transaction.category_set_manually && transaction.applied_rule_id && (
             <Text style={styles.sourceIcon}>⚙</Text>
           )}
+          {category?.exclude_from_totals ? (
+            <View style={[styles.pill, styles.pillExcluded]}>
+              <Text style={[styles.pillText, styles.pillExcludedText]}>↔</Text>
+            </View>
+          ) : null}
           {isDropped && (
             <View style={[styles.pill, styles.pillDropped]}>
               <Text style={[styles.pillText, { color: colors.dropped }]}>Dropped</Text>
@@ -163,6 +168,12 @@ const styles = StyleSheet.create({
   },
   pillDropped: {
     backgroundColor: colors.surfaceAlt,
+  },
+  pillExcluded: {
+    backgroundColor: colors.surfaceAlt,
+  },
+  pillExcludedText: {
+    color: colors.textTertiary,
   },
   pillText: {
     fontFamily: font.semiBold,

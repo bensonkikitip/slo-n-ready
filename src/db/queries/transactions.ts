@@ -32,6 +32,7 @@ export interface AccountSummary {
   income_cents: number;
   expense_cents: number;
   net_cents: number;
+  excluded_cents: number;     // v4.6 — sum of transactions in excluded categories (not in income/expense/net)
   transaction_count: number;
   last_imported_at: number | null;
 }
@@ -219,17 +220,24 @@ export async function getAllTransactions(): Promise<Transaction[]> {
 export async function getAccountSummary(accountId: string): Promise<AccountSummary> {
   const db = await getDb();
   const row = await db.getFirstAsync<{
-    income_cents: number;
-    expense_cents: number;
-    net_cents: number;
-    transaction_count: number;
+    income_cents: number; expense_cents: number;
+    net_cents: number; excluded_cents: number; transaction_count: number;
   }>(
     `SELECT
-       COALESCE(SUM(CASE WHEN amount_cents > 0 THEN amount_cents ELSE 0 END), 0) AS income_cents,
-       COALESCE(SUM(CASE WHEN amount_cents < 0 THEN amount_cents ELSE 0 END), 0) AS expense_cents,
-       COALESCE(SUM(amount_cents), 0) AS net_cents,
+       COALESCE(SUM(CASE WHEN t.amount_cents > 0
+         AND (c.exclude_from_totals IS NULL OR c.exclude_from_totals = 0)
+         THEN t.amount_cents ELSE 0 END), 0) AS income_cents,
+       COALESCE(SUM(CASE WHEN t.amount_cents < 0
+         AND (c.exclude_from_totals IS NULL OR c.exclude_from_totals = 0)
+         THEN t.amount_cents ELSE 0 END), 0) AS expense_cents,
+       COALESCE(SUM(CASE WHEN (c.exclude_from_totals IS NULL OR c.exclude_from_totals = 0)
+         THEN t.amount_cents ELSE 0 END), 0) AS net_cents,
+       COALESCE(SUM(CASE WHEN c.exclude_from_totals = 1
+         THEN t.amount_cents ELSE 0 END), 0) AS excluded_cents,
        COUNT(*) AS transaction_count
-     FROM transactions WHERE account_id = ? AND ${ACTIVE_FILTER}`,
+     FROM transactions t
+     LEFT JOIN categories c ON c.id = t.category_id
+     WHERE t.account_id = ? AND t.${ACTIVE_FILTER}`,
     accountId,
   );
   const lastBatch = await db.getFirstAsync<{ imported_at: number }>(
@@ -237,38 +245,47 @@ export async function getAccountSummary(accountId: string): Promise<AccountSumma
     accountId,
   );
   return {
-    income_cents: row?.income_cents ?? 0,
-    expense_cents: row?.expense_cents ?? 0,
-    net_cents: row?.net_cents ?? 0,
+    income_cents:      row?.income_cents      ?? 0,
+    expense_cents:     row?.expense_cents     ?? 0,
+    net_cents:         row?.net_cents         ?? 0,
+    excluded_cents:    row?.excluded_cents    ?? 0,
     transaction_count: row?.transaction_count ?? 0,
-    last_imported_at: lastBatch?.imported_at ?? null,
+    last_imported_at:  lastBatch?.imported_at ?? null,
   };
 }
 
 export async function getAllAccountsSummary(): Promise<AccountSummary> {
   const db = await getDb();
   const row = await db.getFirstAsync<{
-    income_cents: number;
-    expense_cents: number;
-    net_cents: number;
-    transaction_count: number;
+    income_cents: number; expense_cents: number;
+    net_cents: number; excluded_cents: number; transaction_count: number;
   }>(
     `SELECT
-       COALESCE(SUM(CASE WHEN amount_cents > 0 THEN amount_cents ELSE 0 END), 0) AS income_cents,
-       COALESCE(SUM(CASE WHEN amount_cents < 0 THEN amount_cents ELSE 0 END), 0) AS expense_cents,
-       COALESCE(SUM(amount_cents), 0) AS net_cents,
+       COALESCE(SUM(CASE WHEN t.amount_cents > 0
+         AND (c.exclude_from_totals IS NULL OR c.exclude_from_totals = 0)
+         THEN t.amount_cents ELSE 0 END), 0) AS income_cents,
+       COALESCE(SUM(CASE WHEN t.amount_cents < 0
+         AND (c.exclude_from_totals IS NULL OR c.exclude_from_totals = 0)
+         THEN t.amount_cents ELSE 0 END), 0) AS expense_cents,
+       COALESCE(SUM(CASE WHEN (c.exclude_from_totals IS NULL OR c.exclude_from_totals = 0)
+         THEN t.amount_cents ELSE 0 END), 0) AS net_cents,
+       COALESCE(SUM(CASE WHEN c.exclude_from_totals = 1
+         THEN t.amount_cents ELSE 0 END), 0) AS excluded_cents,
        COUNT(*) AS transaction_count
-     FROM transactions WHERE ${ACTIVE_FILTER}`,
+     FROM transactions t
+     LEFT JOIN categories c ON c.id = t.category_id
+     WHERE t.${ACTIVE_FILTER}`,
   );
   const lastBatch = await db.getFirstAsync<{ imported_at: number }>(
     `SELECT imported_at FROM import_batches ORDER BY imported_at DESC LIMIT 1`,
   );
   return {
-    income_cents: row?.income_cents ?? 0,
-    expense_cents: row?.expense_cents ?? 0,
-    net_cents: row?.net_cents ?? 0,
+    income_cents:      row?.income_cents      ?? 0,
+    expense_cents:     row?.expense_cents     ?? 0,
+    net_cents:         row?.net_cents         ?? 0,
+    excluded_cents:    row?.excluded_cents    ?? 0,
     transaction_count: row?.transaction_count ?? 0,
-    last_imported_at: lastBatch?.imported_at ?? null,
+    last_imported_at:  lastBatch?.imported_at ?? null,
   };
 }
 
@@ -337,15 +354,23 @@ export async function getAccountSummaryForMonth(accountId: string, month: string
   const cat = catClause(categoryIds);
   const row = await db.getFirstAsync<{
     income_cents: number; expense_cents: number;
-    net_cents: number; transaction_count: number;
+    net_cents: number; excluded_cents: number; transaction_count: number;
   }>(
     `SELECT
-       COALESCE(SUM(CASE WHEN amount_cents > 0 THEN amount_cents ELSE 0 END), 0) AS income_cents,
-       COALESCE(SUM(CASE WHEN amount_cents < 0 THEN amount_cents ELSE 0 END), 0) AS expense_cents,
-       COALESCE(SUM(amount_cents), 0) AS net_cents,
+       COALESCE(SUM(CASE WHEN t.amount_cents > 0
+         AND (c.exclude_from_totals IS NULL OR c.exclude_from_totals = 0)
+         THEN t.amount_cents ELSE 0 END), 0) AS income_cents,
+       COALESCE(SUM(CASE WHEN t.amount_cents < 0
+         AND (c.exclude_from_totals IS NULL OR c.exclude_from_totals = 0)
+         THEN t.amount_cents ELSE 0 END), 0) AS expense_cents,
+       COALESCE(SUM(CASE WHEN (c.exclude_from_totals IS NULL OR c.exclude_from_totals = 0)
+         THEN t.amount_cents ELSE 0 END), 0) AS net_cents,
+       COALESCE(SUM(CASE WHEN c.exclude_from_totals = 1
+         THEN t.amount_cents ELSE 0 END), 0) AS excluded_cents,
        COUNT(*) AS transaction_count
-     FROM transactions
-     WHERE account_id = ? AND ${ACTIVE_FILTER} AND substr(date, 1, 7) = ?${cat.sql}`,
+     FROM transactions t
+     LEFT JOIN categories c ON c.id = t.category_id
+     WHERE t.account_id = ? AND t.${ACTIVE_FILTER} AND substr(t.date, 1, 7) = ?${cat.sql}`,
     accountId, month, ...cat.params,
   );
   const lastBatch = await db.getFirstAsync<{ imported_at: number }>(
@@ -356,6 +381,7 @@ export async function getAccountSummaryForMonth(accountId: string, month: string
     income_cents:      row?.income_cents      ?? 0,
     expense_cents:     row?.expense_cents     ?? 0,
     net_cents:         row?.net_cents         ?? 0,
+    excluded_cents:    row?.excluded_cents    ?? 0,
     transaction_count: row?.transaction_count ?? 0,
     last_imported_at:  lastBatch?.imported_at ?? null,
   };
@@ -366,15 +392,23 @@ export async function getAllAccountsSummaryForMonth(month: string, categoryIds: 
   const cat = catClause(categoryIds);
   const row = await db.getFirstAsync<{
     income_cents: number; expense_cents: number;
-    net_cents: number; transaction_count: number;
+    net_cents: number; excluded_cents: number; transaction_count: number;
   }>(
     `SELECT
-       COALESCE(SUM(CASE WHEN amount_cents > 0 THEN amount_cents ELSE 0 END), 0) AS income_cents,
-       COALESCE(SUM(CASE WHEN amount_cents < 0 THEN amount_cents ELSE 0 END), 0) AS expense_cents,
-       COALESCE(SUM(amount_cents), 0) AS net_cents,
+       COALESCE(SUM(CASE WHEN t.amount_cents > 0
+         AND (c.exclude_from_totals IS NULL OR c.exclude_from_totals = 0)
+         THEN t.amount_cents ELSE 0 END), 0) AS income_cents,
+       COALESCE(SUM(CASE WHEN t.amount_cents < 0
+         AND (c.exclude_from_totals IS NULL OR c.exclude_from_totals = 0)
+         THEN t.amount_cents ELSE 0 END), 0) AS expense_cents,
+       COALESCE(SUM(CASE WHEN (c.exclude_from_totals IS NULL OR c.exclude_from_totals = 0)
+         THEN t.amount_cents ELSE 0 END), 0) AS net_cents,
+       COALESCE(SUM(CASE WHEN c.exclude_from_totals = 1
+         THEN t.amount_cents ELSE 0 END), 0) AS excluded_cents,
        COUNT(*) AS transaction_count
-     FROM transactions
-     WHERE ${ACTIVE_FILTER} AND substr(date, 1, 7) = ?${cat.sql}`,
+     FROM transactions t
+     LEFT JOIN categories c ON c.id = t.category_id
+     WHERE t.${ACTIVE_FILTER} AND substr(t.date, 1, 7) = ?${cat.sql}`,
     month, ...cat.params,
   );
   const lastBatch = await db.getFirstAsync<{ imported_at: number }>(
@@ -384,6 +418,7 @@ export async function getAllAccountsSummaryForMonth(month: string, categoryIds: 
     income_cents:      row?.income_cents      ?? 0,
     expense_cents:     row?.expense_cents     ?? 0,
     net_cents:         row?.net_cents         ?? 0,
+    excluded_cents:    row?.excluded_cents    ?? 0,
     transaction_count: row?.transaction_count ?? 0,
     last_imported_at:  lastBatch?.imported_at ?? null,
   };
@@ -416,15 +451,23 @@ export async function getAccountSummaryForYear(accountId: string, year: string, 
   const cat = catClause(categoryIds);
   const row = await db.getFirstAsync<{
     income_cents: number; expense_cents: number;
-    net_cents: number; transaction_count: number;
+    net_cents: number; excluded_cents: number; transaction_count: number;
   }>(
     `SELECT
-       COALESCE(SUM(CASE WHEN amount_cents > 0 THEN amount_cents ELSE 0 END), 0) AS income_cents,
-       COALESCE(SUM(CASE WHEN amount_cents < 0 THEN amount_cents ELSE 0 END), 0) AS expense_cents,
-       COALESCE(SUM(amount_cents), 0) AS net_cents,
+       COALESCE(SUM(CASE WHEN t.amount_cents > 0
+         AND (c.exclude_from_totals IS NULL OR c.exclude_from_totals = 0)
+         THEN t.amount_cents ELSE 0 END), 0) AS income_cents,
+       COALESCE(SUM(CASE WHEN t.amount_cents < 0
+         AND (c.exclude_from_totals IS NULL OR c.exclude_from_totals = 0)
+         THEN t.amount_cents ELSE 0 END), 0) AS expense_cents,
+       COALESCE(SUM(CASE WHEN (c.exclude_from_totals IS NULL OR c.exclude_from_totals = 0)
+         THEN t.amount_cents ELSE 0 END), 0) AS net_cents,
+       COALESCE(SUM(CASE WHEN c.exclude_from_totals = 1
+         THEN t.amount_cents ELSE 0 END), 0) AS excluded_cents,
        COUNT(*) AS transaction_count
-     FROM transactions
-     WHERE account_id = ? AND ${ACTIVE_FILTER} AND substr(date, 1, 4) = ?${cat.sql}`,
+     FROM transactions t
+     LEFT JOIN categories c ON c.id = t.category_id
+     WHERE t.account_id = ? AND t.${ACTIVE_FILTER} AND substr(t.date, 1, 4) = ?${cat.sql}`,
     accountId, year, ...cat.params,
   );
   const lastBatch = await db.getFirstAsync<{ imported_at: number }>(
@@ -435,6 +478,7 @@ export async function getAccountSummaryForYear(accountId: string, year: string, 
     income_cents:      row?.income_cents      ?? 0,
     expense_cents:     row?.expense_cents     ?? 0,
     net_cents:         row?.net_cents         ?? 0,
+    excluded_cents:    row?.excluded_cents    ?? 0,
     transaction_count: row?.transaction_count ?? 0,
     last_imported_at:  lastBatch?.imported_at ?? null,
   };
@@ -445,15 +489,23 @@ export async function getAllAccountsSummaryForYear(year: string, categoryIds: st
   const cat = catClause(categoryIds);
   const row = await db.getFirstAsync<{
     income_cents: number; expense_cents: number;
-    net_cents: number; transaction_count: number;
+    net_cents: number; excluded_cents: number; transaction_count: number;
   }>(
     `SELECT
-       COALESCE(SUM(CASE WHEN amount_cents > 0 THEN amount_cents ELSE 0 END), 0) AS income_cents,
-       COALESCE(SUM(CASE WHEN amount_cents < 0 THEN amount_cents ELSE 0 END), 0) AS expense_cents,
-       COALESCE(SUM(amount_cents), 0) AS net_cents,
+       COALESCE(SUM(CASE WHEN t.amount_cents > 0
+         AND (c.exclude_from_totals IS NULL OR c.exclude_from_totals = 0)
+         THEN t.amount_cents ELSE 0 END), 0) AS income_cents,
+       COALESCE(SUM(CASE WHEN t.amount_cents < 0
+         AND (c.exclude_from_totals IS NULL OR c.exclude_from_totals = 0)
+         THEN t.amount_cents ELSE 0 END), 0) AS expense_cents,
+       COALESCE(SUM(CASE WHEN (c.exclude_from_totals IS NULL OR c.exclude_from_totals = 0)
+         THEN t.amount_cents ELSE 0 END), 0) AS net_cents,
+       COALESCE(SUM(CASE WHEN c.exclude_from_totals = 1
+         THEN t.amount_cents ELSE 0 END), 0) AS excluded_cents,
        COUNT(*) AS transaction_count
-     FROM transactions
-     WHERE ${ACTIVE_FILTER} AND substr(date, 1, 4) = ?${cat.sql}`,
+     FROM transactions t
+     LEFT JOIN categories c ON c.id = t.category_id
+     WHERE t.${ACTIVE_FILTER} AND substr(t.date, 1, 4) = ?${cat.sql}`,
     year, ...cat.params,
   );
   const lastBatch = await db.getFirstAsync<{ imported_at: number }>(
@@ -463,6 +515,7 @@ export async function getAllAccountsSummaryForYear(year: string, categoryIds: st
     income_cents:      row?.income_cents      ?? 0,
     expense_cents:     row?.expense_cents     ?? 0,
     net_cents:         row?.net_cents         ?? 0,
+    excluded_cents:    row?.excluded_cents    ?? 0,
     transaction_count: row?.transaction_count ?? 0,
     last_imported_at:  lastBatch?.imported_at ?? null,
   };

@@ -33,7 +33,7 @@ type ActualRowByAccount = { account_id: string; category_id: string; month: stri
 interface AccountWithSummary extends Account { summary: AccountSummary }
 
 const EMPTY_SUMMARY: AccountSummary = {
-  income_cents: 0, expense_cents: 0, net_cents: 0,
+  income_cents: 0, expense_cents: 0, net_cents: 0, excluded_cents: 0,
   transaction_count: 0, last_imported_at: null,
 };
 
@@ -425,6 +425,7 @@ export default function AccountsListScreen() {
                       incomeCents={allSummary.income_cents}
                       expenseCents={allSummary.expense_cents}
                       netCents={allSummary.net_cents}
+                      excludedCents={allSummary.excluded_cents}
                     />
                   ) : null}
                 </View>
@@ -465,6 +466,7 @@ export default function AccountsListScreen() {
                         incomeCents={item.summary.income_cents}
                         expenseCents={item.summary.expense_cents}
                         netCents={item.summary.net_cents}
+                        excludedCents={item.summary.excluded_cents}
                       />
                     )}
                   </View>

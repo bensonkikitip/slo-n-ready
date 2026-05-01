@@ -9,7 +9,7 @@ import type { Category } from '../../src/db/queries/categories';
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
 function cat(id: string, name: string): Category {
-  return { id, name, color: '#aaa', emoji: null, description: null, created_at: 0 };
+  return { id, name, color: '#aaa', emoji: null, description: null, exclude_from_totals: 0, created_at: 0 };
 }
 
 // ─── buildTrendRows ───────────────────────────────────────────────────────────

@@ -200,12 +200,15 @@ export default function AllAccountsScreen() {
 
   const monthSummary = useMemo(() => {
     const active = displayedTransactions.filter(t => t.dropped_at === null);
+    const isExcluded = (t: { category_id: string | null }) =>
+      !!categoryMap[t.category_id ?? '']?.exclude_from_totals;
     return {
-      income_cents:  active.filter(t => t.amount_cents > 0).reduce((s, t) => s + t.amount_cents, 0),
-      expense_cents: active.filter(t => t.amount_cents < 0).reduce((s, t) => s + t.amount_cents, 0),
-      net_cents:     active.reduce((s, t) => s + t.amount_cents, 0),
+      income_cents:   active.filter(t => t.amount_cents > 0 && !isExcluded(t)).reduce((s, t) => s + t.amount_cents, 0),
+      expense_cents:  active.filter(t => t.amount_cents < 0 && !isExcluded(t)).reduce((s, t) => s + t.amount_cents, 0),
+      net_cents:      active.filter(t => !isExcluded(t)).reduce((s, t) => s + t.amount_cents, 0),
+      excluded_cents: active.filter(t => isExcluded(t)).reduce((s, t) => s + t.amount_cents, 0),
     };
-  }, [displayedTransactions]);
+  }, [displayedTransactions, categoryMap]);
 
   const categoryTotals = useMemo(() => {
     const map = new Map<string, number>();
@@ -410,6 +413,7 @@ export default function AllAccountsScreen() {
               incomeCents={monthSummary.income_cents}
               expenseCents={monthSummary.expense_cents}
               netCents={monthSummary.net_cents}
+              excludedCents={monthSummary.excluded_cents}
             />
 
             <FlatList

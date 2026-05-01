@@ -129,8 +129,8 @@ Expo Router maps the file tree directly to routes. `[id]` is a dynamic segment.
 
 | Component | Used in | Purpose |
 |---|---|---|
-| `SummaryBar` | home, account detail, all | Horizontal income (green) + expense (terracotta) + net bar. |
-| `TransactionRow` | account detail, all | Date, description, amount, category badge, pending/dropped flags. Tap to categorize. |
+| `SummaryBar` | home, account detail, all | Horizontal income (green) + expense (terracotta) + net bar. Optional `excludedCents` prop (v4.6): when non-zero renders a second row `↔ $X.XX not counted toward totals` below the bar. |
+| `TransactionRow` | account detail, all | Date, description, amount, category badge, pending/dropped flags. Tap to categorize. Renders a `↔` pill when the category has `exclude_from_totals = 1`. |
 | `MonthPicker` | home, account detail, all | Segmented Month / Year toggle with dropdown. |
 | `CategoryPicker` | home, account detail, all | Multi-select category filter pills. |
 | `CategoryPickerSheet` | account detail, all | Modal sheet to assign a category to a single transaction. |

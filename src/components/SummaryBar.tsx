@@ -4,24 +4,34 @@ import { centsToDollars } from '../domain/money';
 import { colors, font, spacing } from '../theme';
 
 interface Props {
-  incomeCents:  number;
-  expenseCents: number;
-  netCents:     number;
+  incomeCents:    number;
+  expenseCents:   number;
+  netCents:       number;
+  excludedCents?: number;  // v4.6 — sum of excluded-category transactions; shown as separate row when non-zero
 }
 
-export function SummaryBar({ incomeCents, expenseCents, netCents }: Props) {
+export function SummaryBar({ incomeCents, expenseCents, netCents, excludedCents = 0 }: Props) {
   return (
-    <View style={styles.container}>
-      <Cell label="Income"   cents={incomeCents}  color={colors.income} />
-      <View style={styles.divider} />
-      <Cell label="Expenses" cents={expenseCents} color={colors.expense} />
-      <View style={styles.divider} />
-      <Cell
-        label="Net"
-        cents={netCents}
-        color={netCents >= 0 ? colors.netPositive : colors.netNegative}
-        bold
-      />
+    <View style={styles.wrapper}>
+      <View style={styles.container}>
+        <Cell label="Income"   cents={incomeCents}  color={colors.income} />
+        <View style={styles.divider} />
+        <Cell label="Expenses" cents={expenseCents} color={colors.expense} />
+        <View style={styles.divider} />
+        <Cell
+          label="Net"
+          cents={netCents}
+          color={netCents >= 0 ? colors.netPositive : colors.netNegative}
+          bold
+        />
+      </View>
+      {excludedCents !== 0 && (
+        <View style={styles.excludedRow}>
+          <Text style={styles.excludedText}>
+            {'↔ '}{centsToDollars(Math.abs(excludedCents))}{' not counted toward totals'}
+          </Text>
+        </View>
+      )}
     </View>
   );
 }
@@ -48,13 +58,24 @@ function Cell({
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flexDirection:    'row',
+  wrapper: {
     backgroundColor:  colors.surface,
-    paddingVertical:  spacing.md,
-    paddingHorizontal: spacing.md,
     borderBottomWidth: 1,
     borderBottomColor: colors.separator,
+  },
+  container: {
+    flexDirection:    'row',
+    paddingVertical:  spacing.md,
+    paddingHorizontal: spacing.md,
+  },
+  excludedRow: {
+    alignItems:       'center',
+    paddingBottom:    6,
+  },
+  excludedText: {
+    fontFamily: font.regular,
+    fontSize:   12,
+    color:      colors.textTertiary,
   },
   cell: {
     flex:       1,
