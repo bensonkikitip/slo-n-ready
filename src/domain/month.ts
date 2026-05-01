@@ -27,7 +27,7 @@ export function monthLabel(key: string): string {
   });
 }
 
-function addMonths(key: string, n: number): string {
+export function addMonths(key: string, n: number): string {
   const [y, m] = key.split('-').map(Number);
   const d = new Date(y, m - 1 + n, 1);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;

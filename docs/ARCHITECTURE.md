@@ -85,7 +85,8 @@ Pure functions, no React, no DB. Safe to import anywhere; covered by Jest tests 
 | `budget.ts` | `splitYearTotal(cents)`, `computeYearTotal(monthMap, year)`, `applyPercentage(cents, pct)`, `monthsInYear(year)` | Budget math. `splitYearTotal` distributes an annual amount across 12 months with rounding correction so the parts sum back to the original. `monthsInYear` returns 12 `YYYY-MM` keys. |
 | `budget-variance.ts` | `buildCategoryRows(budgetRows, actualRows, monthsInRange)`, `computeVarianceSummary(rows)`, `classifyRow(row)`, `computeProgress(row)`, `sortCategoryRows(rows, nameFn)` | Budget vs. actual comparison math. `buildCategoryRows` merges per-month budget and actual data into one row per category for any period (1-month or 12-month range). `classifyRow` is sign-of-budget-aware ('good'/'bad'/'neutral'). `computeProgress` returns a 0–1.5 fill ratio for the progress bar. |
 | `money.ts` | `centsToDollars(cents)`, `parseDollarsToCents(value)` | Money formatting. `parseDollarsToCents` handles `$`, commas, parens-as-negative, leading/trailing whitespace. |
-| `month.ts` | `buildYearList`, `buildMonthList`, `monthLabel(key)` | Builds picker entries. Always shows a 6-month window around the latest data even if the DB has gaps. |
+| `month.ts` | `buildYearList`, `buildMonthList`, `monthLabel(key)`, `addMonths(key, n)` | Builds picker entries. Always shows a 6-month window around the latest data even if the DB has gaps. `addMonths` is also used by the Trends screen for period arithmetic. |
+| `trends.ts` | `buildTrendRows(current, previous, categories)`, `getRacheyOverallMessage(totalCurrent, totalPrevious)`, `getRacheyCategoryMessage(name, deltaPct)`, `averageSpendingPeriods(periods)` | Spending comparison logic for the Trends screen. `buildTrendRows` merges two periods into `TrendRow[]` sorted by biggest absolute % change. `getRacheyOverallMessage` and `getRacheyCategoryMessage` form the Rachey message library — encouraging copy keyed by category name keywords (food/transport/entertainment/shopping/health) + direction + magnitude. No hardcoded category IDs. `averageSpendingPeriods` averages N period arrays for the "3-month average" mode. Covered by `tests/domain/trends.test.ts`. |
 | `transaction-id.ts` | `assignTransactionIds(rows) → string[]` | Deterministic SHA256 of `accountId\|date\|amount_cents\|normalized_description`, with a sequence counter for exact dupes within the same import. See "CSV import" below. |
 | `normalize.ts` | `normalizeDescription(raw)`, `mmddyyyyToIso(date)` | Trim, collapse whitespace, uppercase. Date format conversion. |
 | `category-colors.ts` | `CATEGORY_COLORS` (readonly) | The 8 picker swatches: Sage, Peach, Terracotta, Sky, Lavender, Gold, Berry, Slate. |
@@ -117,6 +118,7 @@ Expo Router maps the file tree directly to routes. `[id]` is a dynamic segment.
 | `/onboarding/categories` | `onboarding/categories.tsx` | Checklist of 10 starter categories (all checked). Tap a row to inline-edit name + emoji. Uncheck to skip. "Save & continue" bulk-inserts checked rows via `bulkInsertCategories`, sets `intro_completed = "true"`, replaces to `/account/new`. |
 | `/onboarding/foundational-rules` | `onboarding/foundational-rules.tsx` | Per-account foundational rules sheet. Pushed from `app/account/[id]/index.tsx` when `?showFoundationalOnboarding=1` is set AND no `foundational_rule_settings` rows exist for the account. Lists 6 foundational rules with category dropdown + enable toggle. First account: pre-fills by name match against `defaultCategoryName`. 2nd+ account: copies from oldest other account. Accept → `bulkUpsertFoundationalRuleSettings` + `autoApplyRulesForAccount` → `/onboarding/done`. Skip → all rows written with `enabled=0` so the screen doesn't re-fire → `router.back()`. |
 | `/onboarding/done` | `onboarding/done.tsx` | Congrats screen after foundational rules apply. Shows "X transactions categorized!" using a `firstFoundationalCategorization` Rachey moment. CTA → replace to `/account/${accountId}`. |
+| `/trends` | `trends.tsx` | Spending Trends screen. Three comparison modes: vs last month (default), vs same month last year (only shown when data spans > 11 months), vs 3-month average. Shows Rachey's overall message card (`RacheyInsightCard`) plus a sorted list of per-category rows (`TrendCategoryRow`). For categories with a spending goal set, a goal-status pill shows under/over. Empty state when no comparison data is available. Accessible via "Trends" button in the home screen header. |
 
 ---
 
@@ -141,6 +143,8 @@ Expo Router maps the file tree directly to routes. `[id]` is a dynamic segment.
 | `Sloth` | empty states, splash, welcome screens | Mascot SVGs (meditating, sleeping, laptop, piggyBank, waving, dreaming, etc.). |
 | `RacheyBanner` | categories, home, rules, account detail, import, backup | Inline banner: small Rachey pose (52px) + random encouragement line + dismiss ×. Locks pose and line on mount via `useState(() => pickRacheyLine(moment))` so it never re-randomizes mid-render. |
 | `SplashSlogan` | `_layout.tsx` (root overlay) | Animated branded card shown on every cold launch. Displays Rachey in `meditating` pose + 3-line slogan. Visible for 800 ms, then fades over 400 ms. `pointerEvents="none"` — never blocks input. Mounts as an absolute overlay over the Stack; `_layout.tsx` hides it via `showSplash` state when `onDone` fires. |
+| `TrendCategoryRow` | `app/trends.tsx` | Single category comparison row. Left side: emoji + category name + Rachey micro-comment. Right side: current period $ (bold) + previous period $ (muted) + Δ% badge. Badge is green for down-spending (good), terracotta for up-spending, gray for same. |
+| `RacheyInsightCard` | `app/trends.tsx` | Overall period comparison card. Rachey illustration (waving = good news, piggyBank = neutral/no data) + overall message + divider + two-column totals bar (current period total vs previous period total with Δ pill). |
 
 ---
 
@@ -199,9 +203,31 @@ Implemented in [`app/account/[id]/budget.tsx`](../app/account/[id]/budget.tsx) u
 
 `splitYearTotal` is the rounding-safe way to distribute an annual amount across 12 months: any rounding remainder is added to the last month so the parts sum exactly to the input.
 
-### Budget vs. actual (Activity / Budget toggle)
+### Spending Trends
 
-An **Activity / Budget toggle** (`ActivityBudgetToggle`) sits near the `MonthPicker` on three screens: home (`app/index.tsx`), account detail (`app/account/[id]/index.tsx`), and all accounts (`app/all.tsx`). Switching to Budget mode replaces the transaction-list content with `BudgetView` (or, on the home screen, replaces each card's `SummaryBar` with `BudgetVarianceSummary`).
+Implemented in [`app/trends.tsx`](../app/trends.tsx) using [`src/domain/trends.ts`](../src/domain/trends.ts) and [`getCategorySpendingForMonth`](../src/db/queries/budgets.ts).
+
+The screen compares two time periods: the most recent month with data (current) vs. a selectable comparison period.
+
+**Three comparison modes:**
+- **vs last month** (default) — `addMonths(currentMonth, -1)`
+- **vs same month last year** — `addMonths(currentMonth, -12)` — only shown if the DB has > 11 months of data
+- **vs 3-month average** — `averageSpendingPeriods([p1, p2, p3])` client-side from three `getCategorySpendingForMonth` calls
+
+**Data flow:**
+1. `getDistinctMonths()` determines the most recent month and whether the "last year" pill should appear.
+2. `getCategorySpendingForMonth(month)` returns `{category_id, total_cents}[]` for any month (single SQL query: `SUM(amount_cents) GROUP BY category_id`).
+3. `buildTrendRows(current, previous, categories)` merges the two period arrays into `TrendRow[]` (one per category that appears in either period), with `delta_pct` computed as `(|current| − |previous|) / |previous|`. Sorted by biggest absolute `delta_pct` first.
+4. `getRacheyOverallMessage` and `getRacheyCategoryMessage` inject Rachey's copy — encouraging regardless of direction.
+5. `getBudgetsForAllAccountsYear` provides spending goal data for the goal-status pill overlay (under / slightly over / over).
+
+**Terminology:** UI uses "spending goal" everywhere. The DB table is `budgets` and the code symbols (`budgetRows`, `viewMode === 'budget'`, etc.) stay unchanged — renaming them is a migration risk for no user benefit. The future goal-setting feature will use the word "targets."
+
+### Budget vs. actual (Activity / Goals toggle)
+
+An **Activity / Goals toggle** (`ActivityBudgetToggle`) sits near the `MonthPicker` on three screens: home (`app/index.tsx`), account detail (`app/account/[id]/index.tsx`), and all accounts (`app/all.tsx`). Switching to Goals mode replaces the transaction-list content with `BudgetView` (or, on the home screen, replaces each card's `SummaryBar` with `BudgetVarianceSummary`).
+
+> **Note:** The toggle's UI label changed from "Budget" → "Goals" in v4.4.0 (per the terminology lock above). Internal code symbols and the DB table name remain `budget` / `budgets`.
 
 Budget data is year-grain (one query per year, cached until the screen loses focus). The month/year picker still drives the comparison — switching months within the same year is free (client-side filter via `monthsInRange`).
 
