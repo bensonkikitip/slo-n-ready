@@ -199,9 +199,10 @@ export async function restoreFromData(data: BackupData): Promise<void> {
     );
 
     await batchInsertOrReplace(db, 'categories',
-      ['id', 'name', 'color', 'emoji', 'description', 'created_at'],
+      ['id', 'name', 'color', 'emoji', 'description', 'exclude_from_totals', 'created_at'],
       (data.categories ?? []).map(c => [
-        c.id, c.name, c.color, c.emoji ?? null, c.description ?? null, c.created_at,
+        c.id, c.name, c.color, c.emoji ?? null, c.description ?? null,
+        c.exclude_from_totals ?? 0, c.created_at,
       ]),
       100,
     );

@@ -6,7 +6,7 @@
 
 **Database**: local SQLite file `budgetapp.db`, opened via `expo-sqlite`.
 **Foreign keys**: enabled (`PRAGMA foreign_keys = ON`). Cascading deletes are intentional.
-**Schema version**: tracked via `PRAGMA user_version`. Current = **12** (v4.2).
+**Schema version**: tracked via `PRAGMA user_version`. Current = **13** (v4.6).
 
 ---
 
@@ -96,6 +96,7 @@ User-defined spend/income categories.
 | `color` | `TEXT NOT NULL` | Hex like `#6FA882`. Picked from the 8-swatch palette in `src/domain/category-colors.ts`. |
 | `emoji` | `TEXT` | Nullable. A single emoji glyph chosen from the curated picker in `app/category/new.tsx` (`CATEGORY_EMOJIS`). Added in migration v10. |
 | `description` | `TEXT` | Nullable. Short user-written description. Added in migration v10. |
+| `exclude_from_totals` | `INTEGER NOT NULL DEFAULT 0` | 1 = transactions in this category are excluded from income/expense/net summaries and shown in a separate "not counted toward totals" row. Use for transfers, investment contributions, etc. Added in migration v13 (v4.6). |
 | `created_at` | `INTEGER NOT NULL` | |
 
 Deleting a category sets `transactions.category_id` and any rule references to NULL — but rules cascade-delete via the `rules.category_id` FK (see below), so rules are wiped when their category is deleted.
@@ -205,8 +206,9 @@ interface Transaction   { id; account_id; date: string /*YYYY-MM-DD*/;
                           category_id: string|null; category_set_manually: number;
                           applied_rule_id: string|null; }
 interface Category      { id; name; color: string /*#hex*/;
-                          emoji: string|null;       // v4.0 — nullable
-                          description: string|null; // v4.0 — nullable
+                          emoji: string|null;          // v4.0 — nullable
+                          description: string|null;    // v4.0 — nullable
+                          exclude_from_totals: number; // v4.6 — 0 or 1
                           created_at: number; }
 interface RuleCondition { match_type: MatchType; match_text: string; }
 interface Rule          { id; account_id; category_id;
@@ -217,6 +219,7 @@ interface Rule          { id; account_id; category_id;
 interface Budget        { account_id; category_id; month: string /*YYYY-MM*/;
                           amount_cents: number; }
 interface AccountSummary{ income_cents; expense_cents; net_cents;
+                          excluded_cents: number;        // v4.6 — sum of excluded-category amounts
                           transaction_count; last_imported_at: number|null; }
 // v4.0 — new tables
 interface FoundationalRuleSetting {
@@ -266,6 +269,7 @@ All migrations live in [`src/db/client.ts`](../src/db/client.ts) under `getDb()`
 | 10 | Adds `categories.emoji` and `categories.description` (both nullable). Adds `foundational_rule_settings` table + `idx_foundational_settings_account`. Adds `app_preferences` table. |
 | 11 | Adds `foundational_rule_settings.sort_order` (per-account display/run order). Backfills the optimal default order. |
 | 12 | Recreates `transactions` to drop the FK on `applied_rule_id` so synthetic `'foundational:<id>'` IDs can be persisted. Backfills `applied_rule_id` for existing rows that pre-fix code categorized via foundational rules but stored NULL. `deleteRule` now clears `applied_rule_id` in code (replacing the dropped `ON DELETE SET NULL` cascade). |
+| 13 | Adds `categories.exclude_from_totals INTEGER NOT NULL DEFAULT 0`. Transactions in excluded categories are tracked but omitted from income/expense/net summaries; shown in a separate "not counted toward totals" row. |
 
 **Pre-migration backup**: before any pending migration runs, [`writePreMigrationBackup`](../src/db/client.ts) writes a snapshot of all known tables to `Documents/slo-n-ready-backup.json` so the user can roll back if a migration fails. Don't bypass this.
 

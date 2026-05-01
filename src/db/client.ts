@@ -2,7 +2,7 @@ import * as SQLite from 'expo-sqlite';
 import * as FileSystem from 'expo-file-system/legacy';
 import { snapshotAllTables, BACKUP_PATH } from './backup';
 
-const LATEST_DB_VERSION = 12;
+const LATEST_DB_VERSION = 13;
 
 // Written before any migration runs so the user can always roll back.
 // Uses snapshotAllTables (in backup.ts) so the file format always matches the
@@ -424,6 +424,21 @@ async function _init(): Promise<SQLite.SQLiteDatabase> {
       }
 
       await db.execAsync('PRAGMA user_version = 12');
+    } finally {
+      await db.execAsync('PRAGMA foreign_keys = ON');
+    }
+  }
+
+  if (version < 13) {
+    try {
+      await db.execAsync('PRAGMA foreign_keys = OFF');
+      // Add exclude_from_totals flag to categories.
+      // Transactions in excluded categories are still tracked but not counted
+      // in income/expense/net totals — they appear in a separate summary row.
+      await db.execAsync(
+        `ALTER TABLE categories ADD COLUMN exclude_from_totals INTEGER NOT NULL DEFAULT 0`,
+      );
+      await db.execAsync('PRAGMA user_version = 13');
     } finally {
       await db.execAsync('PRAGMA foreign_keys = ON');
     }

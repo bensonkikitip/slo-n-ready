@@ -216,7 +216,7 @@ export default function AccountRulesScreen() {
     try {
       const newId = Crypto.randomUUID();
       await insertCategory({ id: newId, name: trimmed, color: newCatColor, emoji: null, description: null });
-      const newCat: Category = { id: newId, name: trimmed, color: newCatColor, emoji: null, description: null, created_at: Date.now() };
+      const newCat: Category = { id: newId, name: trimmed, color: newCatColor, emoji: null, description: null, exclude_from_totals: 0, created_at: Date.now() };
       setCategories(prev => [...prev, newCat].sort((a, b) => a.name.localeCompare(b.name)));
       setCategoryId(newId);
       setCatView('collapsed'); // header shows newly created category, list closed
