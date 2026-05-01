@@ -157,6 +157,28 @@ describe('getRacheyOverallMessage', () => {
     expect(typeof msg).toBe('string');
     expect(msg.length).toBeGreaterThan(0);
   });
+
+  it('uses "last month" by default', () => {
+    const msg = getRacheyOverallMessage(-1500, -2000);
+    expect(msg).toContain('last month');
+  });
+
+  it('uses custom label for same-month-last-year comparison', () => {
+    const msg = getRacheyOverallMessage(-1500, -2000, 'this month last year');
+    expect(msg).toContain('this month last year');
+    expect(msg).not.toContain('last month');
+  });
+
+  it('uses custom label for 3-month average comparison', () => {
+    const msg = getRacheyOverallMessage(-2500, -2000, 'the 3-month average');
+    expect(msg).toContain('the 3-month average');
+    expect(msg).not.toContain('last month');
+  });
+
+  it('equal-totals message uses custom label', () => {
+    const msg = getRacheyOverallMessage(-2000, -2000, 'this month last year');
+    expect(msg).toContain('this month last year');
+  });
 });
 
 // ─── getRacheyCategoryMessage ─────────────────────────────────────────────────

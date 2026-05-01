@@ -88,10 +88,14 @@ export function buildTrendRows(
  *
  * @param totalCurrentCents  Sum of expense amounts for the current period (typically negative).
  * @param totalPreviousCents Sum of expense amounts for the comparison period.
+ * @param comparisonLabel    Human-readable label for the comparison period,
+ *                           e.g. "last month", "this month last year", "the 3-month average".
+ *                           Defaults to "last month" for backwards compatibility.
  */
 export function getRacheyOverallMessage(
   totalCurrentCents:  number,
   totalPreviousCents: number,
+  comparisonLabel = 'last month',
 ): string {
   if (totalPreviousCents === 0) {
     return "Come back after one more month and I'll show you how you're trending 📖";
@@ -103,12 +107,12 @@ export function getRacheyOverallMessage(
   const dollars = Math.round(diffAbs / 100);
 
   if (curAbs < prevAbs) {
-    return `You spent $${dollars} less than last month — Rachey is doing a happy dance! 💃`;
+    return `You spent $${dollars} less than ${comparisonLabel} — Rachey is doing a happy dance! 💃`;
   }
   if (curAbs > prevAbs) {
-    return `Big month! Spending was up $${dollars} from last month — let's see where it went 🔍`;
+    return `Big month! Spending was up $${dollars} from ${comparisonLabel} — let's see where it went 🔍`;
   }
-  return "Spending was exactly the same as last month — steady as ever! 😄";
+  return `Spending was exactly the same as ${comparisonLabel} — steady as ever! 😄`;
 }
 
 // ─── getRacheyCategoryMessage ─────────────────────────────────────────────────

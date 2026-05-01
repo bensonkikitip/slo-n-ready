@@ -216,7 +216,13 @@ export default function TrendsScreen() {
         >
           {/* Rachey insight card */}
           <RacheyInsightCard
-            message={getRacheyOverallMessage(data.totalCurrentCents, data.totalPreviousCents)}
+            message={getRacheyOverallMessage(
+              data.totalCurrentCents,
+              data.totalPreviousCents,
+              mode === 'same_month_last_year' ? 'this month last year'
+              : mode === 'three_month_avg'    ? 'the 3-month average'
+              : 'last month',
+            )}
             currentLabel={monthLabel(data.currentMonth)}
             previousLabel={data.previousLabel}
             currentCents={data.totalCurrentCents}
