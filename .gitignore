@@ -52,3 +52,10 @@ Screenshots for AppStore/
 # Exception: synthetic test fixtures are safe to commit (no real financial data)
 !tests/fixtures/*.csv
 !maestro/fixtures/*.csv
+
+# Real bank statement PDFs and text extracts at repo root (private financial data)
+/*.pdf
+*-text.txt
+
+# Generated data files
+scripts/global-test-backup.json
