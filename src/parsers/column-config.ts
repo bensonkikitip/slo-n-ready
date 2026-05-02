@@ -39,4 +39,15 @@ export const DEFAULT_CONFIGS: Record<string, ColumnConfig> = {
     pendingColumn:    'Status',
     clearedValue:     'Cleared',
   },
+  // BoA savings accounts (Regular Savings, Adv SafeBalance Banking)
+  // CSV columns: Date, Description, Amount, Running Bal.
+  // Amount is already signed; Running Bal. is ignored.
+  boa_savings_v1: {
+    dateColumn:         'Date',
+    descriptionColumn:  'Description',
+    dateFormat:         'MM/DD/YYYY',
+    amountStyle:        'signed',
+    signedAmountColumn: 'Amount',
+    headerContains:     'Date,Description,Amount',
+  },
 };

@@ -2,7 +2,15 @@ import { getDb } from '../client';
 import { ColumnConfig, DEFAULT_CONFIGS } from '../../parsers/column-config';
 
 export type AccountType = 'checking' | 'credit_card';
-export type CsvFormat = 'boa_checking_v1' | 'citi_cc_v1' | 'custom';
+export type CsvFormat =
+  | 'boa_checking_v1'
+  | 'boa_savings_v1'
+  | 'boa_cc_v1'
+  | 'citi_cc_v1'
+  | 'axos_checking_v1'
+  | 'axos_savings_v1'
+  | 'chase_cc_v1'
+  | 'custom';
 
 export interface Account {
   id: string;

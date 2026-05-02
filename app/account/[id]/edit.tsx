@@ -10,6 +10,7 @@ import {
 } from '../../../src/db/queries';
 import { writeBackupSafe } from '../../../src/db/backup';
 import { ColumnConfig, DEFAULT_CONFIGS } from '../../../src/parsers/column-config';
+import { CSV_FORMATS } from '../../../src/parsers/bank-formats';
 import { ColumnMappingForm } from '../../../src/components/ColumnMappingForm';
 import { colors, font, spacing, radius, accountColor } from '../../../src/theme';
 
@@ -18,10 +19,7 @@ const ACCOUNT_TYPES: { label: string; value: AccountType; emoji: string }[] = [
   { label: 'Credit Card', value: 'credit_card', emoji: '💳' },
 ];
 
-const CSV_FORMATS: { label: string; value: CsvFormat; forType: AccountType }[] = [
-  { label: 'Bank of America – Checking', value: 'boa_checking_v1', forType: 'checking' },
-  { label: 'Citi – Credit Card',         value: 'citi_cc_v1',      forType: 'credit_card' },
-];
+export { CSV_FORMATS };
 
 
 export default function EditAccountScreen() {

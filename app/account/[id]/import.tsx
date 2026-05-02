@@ -15,7 +15,11 @@ import {
 } from '../../../src/db/queries';
 import { writeBackupSafe } from '../../../src/db/backup';
 import { autoApplyRulesForAccount, ApplyResult } from '../../../src/domain/rules-engine';
-import { parseCsv, ParsedRow, parseBoaPdf, parseCitiPdf, parseGenericPdf, ParsedPdf, SkippedCandidate } from '../../../src/parsers';
+import {
+  parseCsv, ParsedRow,
+  parseBoaPdf, parseCitiPdf, parseAxosPdf, parseChasePdf, parseBoaCcPdf, parseGenericPdf,
+  ParsedPdf, SkippedCandidate,
+} from '../../../src/parsers';
 import { assignTransactionIds } from '../../../src/domain/transaction-id';
 import { centsToDollars } from '../../../src/domain/money';
 import { Sloth } from '../../../src/components/Sloth';
@@ -47,7 +51,7 @@ interface PreviewData {
 // ─── Main screen ──────────────────────────────────────────────────────────────
 
 export default function ImportScreen() {
-  const { id: accountId } = useLocalSearchParams<{ id: string }>();
+  const { id: accountId, fromOnboarding } = useLocalSearchParams<{ id: string; fromOnboarding?: string }>();
   const router  = useRouter();
   const insets  = useSafeAreaInsets();
   const [phase,        setPhase]        = useState<Phase>('pick');
@@ -130,11 +134,18 @@ export default function ImportScreen() {
       }
 
       // Route to the correct bank parser based on account format
+      const fmt = account.csv_format;
       let parsedPdf: ParsedPdf;
-      if (account.csv_format === 'boa_checking_v1') {
+      if (fmt === 'boa_checking_v1' || fmt === 'boa_savings_v1') {
         parsedPdf = parseBoaPdf(items);
-      } else if (account.csv_format === 'citi_cc_v1') {
+      } else if (fmt === 'citi_cc_v1') {
         parsedPdf = parseCitiPdf(items);
+      } else if (fmt === 'boa_cc_v1') {
+        parsedPdf = parseBoaCcPdf(items);
+      } else if (fmt === 'axos_checking_v1' || fmt === 'axos_savings_v1') {
+        parsedPdf = parseAxosPdf(items);
+      } else if (fmt === 'chase_cc_v1') {
+        parsedPdf = parseChasePdf(items);
       } else {
         parsedPdf = parseGenericPdf(items);
       }
@@ -278,6 +289,17 @@ export default function ImportScreen() {
                       Choose PDF Statement…
                     </Text>
                   </TouchableOpacity>
+                  {fromOnboarding === '1' && (
+                    <TouchableOpacity
+                      style={styles.ghostButton}
+                      onPress={() => router.replace(`/account/${accountId}?showFoundationalOnboarding=1`)}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={[styles.ghostButtonText, { color: accent }]}>
+                        Skip & set up rules →
+                      </Text>
+                    </TouchableOpacity>
+                  )}
                 </View>
               )
             }
@@ -429,10 +451,15 @@ export default function ImportScreen() {
 
             <TouchableOpacity
               style={[styles.primaryButton, { backgroundColor: accent }]}
-              onPress={() => router.back()}
+              onPress={() => fromOnboarding === '1'
+                ? router.replace(`/account/${accountId}?showFoundationalOnboarding=1`)
+                : router.back()
+              }
               activeOpacity={0.85}
             >
-              <Text style={styles.primaryButtonText}>Back to Account</Text>
+              <Text style={styles.primaryButtonText}>
+                {fromOnboarding === '1' ? 'Set up rules →' : 'Back to Account'}
+              </Text>
             </TouchableOpacity>
           </View>
         )}

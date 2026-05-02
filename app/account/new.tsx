@@ -8,10 +8,11 @@ import * as Crypto from 'expo-crypto';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
 import {
-  AccountType, insertAccount,
+  AccountType, CsvFormat, insertAccount,
   importTransactions, insertImportBatch, updateImportBatchCounts,
 } from '../../src/db/queries';
 import { ColumnConfig, DEFAULT_CONFIGS } from '../../src/parsers/column-config';
+import { CSV_FORMATS } from '../../src/parsers/bank-formats';
 import { detectColumnConfig } from '../../src/parsers/column-detector';
 import { GenericRow } from '../../src/parsers/generic-parser';
 import { parseCsv } from '../../src/parsers';
@@ -33,6 +34,7 @@ export default function AddAccountScreen() {
 
   const [name,        setName]        = useState('');
   const [type,        setType]        = useState<AccountType>('checking');
+  const [bankFormat,  setBankFormat]  = useState<CsvFormat>('custom');
   const [config,      setConfig]      = useState<ColumnConfig | null>(null);
   const [sampleRows,  setSampleRows]  = useState<GenericRow[]>([]);
   const [csvFilename, setCsvFilename] = useState<string | null>(null);
@@ -186,7 +188,37 @@ export default function AddAccountScreen() {
     }
   }
 
-  const canSave = !!name.trim() && isMappingValid() && !saving;
+  const canSave        = !!name.trim() && isMappingValid() && !saving;
+  const canSkipToPdf   = !!name.trim() && bankFormat !== 'custom' && !saving;
+
+  // ── Skip-CSV path: create the account and go directly to PDF import ──────────
+
+  async function handleSkipCsv() {
+    if (!name.trim()) {
+      Alert.alert('Name required', 'Please give this account a name.');
+      return;
+    }
+    setSaving(true);
+    try {
+      const newAccountId = Crypto.randomUUID();
+      await insertAccount({
+        id:            newAccountId,
+        name:          name.trim(),
+        type,
+        csv_format:    bankFormat,
+        // Fall back to boa_checking defaults for CSV imports if the format has no column config.
+        column_config: JSON.stringify(DEFAULT_CONFIGS[bankFormat] ?? DEFAULT_CONFIGS['boa_checking_v1']),
+        suggest_rules: 1,
+        created_at:    Date.now(),
+      });
+      writeBackupSafe();
+      router.replace(`/account/${newAccountId}/import?fromOnboarding=1`);
+    } catch (e: any) {
+      Alert.alert('Error', e.message ?? 'Could not save account. Please try again.');
+    } finally {
+      setSaving(false);
+    }
+  }
 
   return (
     <ScrollView
@@ -307,6 +339,55 @@ export default function AddAccountScreen() {
         activeOpacity={0.85}
       >
         <Text style={styles.saveButtonText}>{saving ? 'Saving…' : 'Add Account & Import →'}</Text>
+      </TouchableOpacity>
+
+      {/* ── OR: import a PDF statement path ── */}
+      <View style={styles.orDivider}>
+        <View style={styles.orLine} />
+        <Text style={styles.orText}>OR</Text>
+        <View style={styles.orLine} />
+      </View>
+
+      <Text style={styles.sectionLabel}>IMPORT A STATEMENT INSTEAD</Text>
+      <Text style={styles.hint}>
+        Skip the CSV — select your bank below and I'll route your PDF statement to the right parser.
+      </Text>
+
+      {/* Bank format selector filtered by current account type */}
+      <View style={styles.card}>
+        {[
+          { label: 'None / Custom', value: 'custom' as CsvFormat },
+          ...CSV_FORMATS.filter(f => f.forType === type),
+        ].map((f, i) => (
+          <TouchableOpacity
+            key={f.value}
+            style={[
+              styles.option,
+              i > 0 && styles.optionBorder,
+              bankFormat === f.value && { backgroundColor: colors.primaryLight },
+            ]}
+            onPress={() => setBankFormat(f.value)}
+            activeOpacity={0.7}
+          >
+            <Text style={[styles.optionLabel, bankFormat === f.value && { color: accentColor }]}>
+              {f.label}
+            </Text>
+            {bankFormat === f.value && (
+              <Text style={[styles.check, { color: accentColor }]}>✓</Text>
+            )}
+          </TouchableOpacity>
+        ))}
+      </View>
+
+      <TouchableOpacity
+        style={[styles.saveButton, { backgroundColor: accentColor }, !canSkipToPdf && styles.disabled]}
+        onPress={handleSkipCsv}
+        disabled={!canSkipToPdf}
+        activeOpacity={0.85}
+      >
+        <Text style={styles.saveButtonText}>
+          {saving ? 'Saving…' : 'Skip CSV — I\'ll import a statement →'}
+        </Text>
       </TouchableOpacity>
     </ScrollView>
   );
@@ -443,5 +524,19 @@ const styles = StyleSheet.create({
     fontFamily: font.bold,
     fontSize:   17,
     color:      colors.textOnColor,
+  },
+
+  orDivider: {
+    flexDirection:  'row',
+    alignItems:     'center',
+    marginVertical: spacing.lg,
+    gap:            spacing.sm,
+  },
+  orLine: { flex: 1, height: 1, backgroundColor: colors.separator },
+  orText: {
+    fontFamily: font.semiBold,
+    fontSize:   13,
+    color:      colors.textTertiary,
+    letterSpacing: 1,
   },
 });
