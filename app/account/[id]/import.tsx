@@ -11,7 +11,7 @@ import * as Crypto from 'expo-crypto';
 import {
   getAllAccounts, Account, importTransactions,
   insertImportBatch, updateImportBatchCounts, ImportResult, parseColumnConfig,
-  getDistinctMonths,
+  updateAccount, getDistinctMonths,
 } from '../../../src/db/queries';
 import { writeBackupSafe } from '../../../src/db/backup';
 import { autoApplyRulesForAccount, ApplyResult } from '../../../src/domain/rules-engine';
@@ -20,6 +20,7 @@ import {
   parseBoaPdf, parseCitiPdf, parseAxosPdf, parseChasePdf, parseBoaCcPdf, parseGenericPdf,
   ParsedPdf, SkippedCandidate,
 } from '../../../src/parsers';
+import { detectColumnConfig } from '../../../src/parsers/column-detector';
 import { assignTransactionIds } from '../../../src/domain/transaction-id';
 import { centsToDollars } from '../../../src/domain/money';
 import { Sloth } from '../../../src/components/Sloth';
@@ -90,7 +91,26 @@ export default function ImportScreen() {
       setIsFromPdf(false);
       if (!account) throw new Error('Account not found');
 
-      const rows = parseCsv(parseColumnConfig(account), text);
+      // For accounts whose bank isn't in the supported list, auto-detect the
+      // column layout from the CSV headers and persist it so future imports
+      // don't need to re-detect.
+      let columnConfig = parseColumnConfig(account);
+      if (account.csv_format === 'custom') {
+        const detected = detectColumnConfig(text);
+        if (detected.warnings.length > 0) {
+          Alert.alert(
+            'Heads up',
+            detected.warnings.join('\n\n') + '\n\nI\'ll use the detected layout. Go to Edit Account to adjust if needed.',
+          );
+        }
+        columnConfig = detected.config;
+        // Persist so subsequent imports use the learned layout automatically.
+        await updateAccount(accountId, { column_config: JSON.stringify(detected.config) });
+        // Keep the local account state in sync for the rest of this session.
+        setAccount(prev => prev ? { ...prev, column_config: JSON.stringify(detected.config) } : prev);
+      }
+
+      const rows = parseCsv(columnConfig, text);
       if (rows.length === 0) throw new Error('No transactions found in this file.');
 
       const ids = assignTransactionIds(
