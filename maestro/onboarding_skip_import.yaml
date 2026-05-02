@@ -1,0 +1,44 @@
+appId: com.kiip.slonready
+---
+# Tests the "Skip & set up rules →" path in import.tsx when fromOnboarding=1.
+# Covers the case where the user creates an account and goes straight to
+# foundational rules setup without importing any transactions first.
+- launchApp:
+    clearState: true
+
+# ── Screen: onboarding/intro ──────────────────────────────────────────────────
+- assertVisible: "Hi, I'm Rachey."
+- tapOn: "Let's set up your categories →"
+
+# ── Screen: onboarding/categories ─────────────────────────────────────────────
+- assertVisible: "Pick your starter categories"
+- tapOn: "Save & continue →"
+
+# ── Screen: account/new ───────────────────────────────────────────────────────
+- assertVisible: "ACCOUNT TYPE"
+- tapOn: "Checking"
+- tapOn: "e.g. Chase Checking, Amex Gold"
+- inputText: "BofA Checking"
+- tapOn: "Bank of America – Checking"
+- tapOn: "Add Account & Import →"
+
+# ── Screen: account/[id]/import — pick phase ─────────────────────────────────
+# The "Skip & set up rules →" ghost button is only visible when fromOnboarding=1.
+- assertVisible: "Choose CSV File…"
+- assertVisible: "Skip & set up rules →"
+- tapOn: "Skip & set up rules →"
+
+# ── Screen: onboarding/foundational-rules ─────────────────────────────────────
+# The screen pre-fills category mappings from the starter categories saved above.
+# "Use these — apply now" should be enabled since the starter categories match
+# the foundational rules' default category names.
+- assertVisible: "Want me to recognize what I can?"
+- tapOn: "Use these — apply now"
+
+# ── Screen: onboarding/done ───────────────────────────────────────────────────
+# No transactions were imported so 0 were categorized — headline is "All set up."
+- assertVisible: "All set up."
+- tapOn: "View account →"
+
+# ── Screen: account/[id] ─────────────────────────────────────────────────────
+- assertVisible: "BofA Checking"

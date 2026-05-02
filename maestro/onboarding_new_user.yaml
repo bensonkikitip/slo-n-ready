@@ -14,22 +14,40 @@ appId: com.kiip.slonready
 - tapOn: "Save & continue →"
 
 # ── Screen: account/new ───────────────────────────────────────────────────────
-- assertVisible: "ACCOUNT NAME"
+# account/new is now a 3-step form: Type → Name → Bank Format → one CTA.
+# There is no CSV picking here — that happens in the import screen below.
+- assertVisible: "ACCOUNT TYPE"
 - tapOn: "Credit Card"
-# Type the account name into the name field (identified by its placeholder).
 - tapOn: "e.g. Chase Checking, Amex Gold"
 - inputText: "Chase Freedom"
-# Open the document picker and inject the fixture CSV.
-- tapOn: "Choose a sample CSV from your bank"
-- inputFile: "maestro/fixtures/sample_onboarding.csv"
-# Column detection should succeed and show the preview table.
-- assertVisible: "PREVIEW"
+# Select bank format. sample_onboarding.csv uses Debit/Credit columns which
+# match the Citi CC config — so we pick "Citi – Credit Card" here.
+- tapOn: "Citi – Credit Card"
 - tapOn: "Add Account & Import →"
 
+# ── Screen: account/[id]/import — pick phase ─────────────────────────────────
+# The app created the account and immediately landed here with fromOnboarding=1.
+# Both CSV and PDF options are offered in one unified screen.
+- assertVisible: "Choose CSV File…"
+- tapOn: "Choose CSV File…"
+- inputFile: "maestro/fixtures/sample_onboarding.csv"
+
+# ── Screen: account/[id]/import — preview phase ───────────────────────────────
+# sample_onboarding.csv has 7 rows (6 cleared + 1 pending).
+- assertVisible: "7 transactions found"
+- tapOn: "Import 7 Transactions"
+
+# ── Screen: account/[id]/import — done phase ─────────────────────────────────
+- assertVisible: "All done — nice work!"
+# fromOnboarding=1 changes the CTA from "Back to Account" → "Set up rules →"
+- tapOn: "Set up rules →"
+
 # ── Screen: onboarding/foundational-rules ─────────────────────────────────────
+# Triggered automatically because showFoundationalOnboarding=1 is set and
+# no foundational_rule_settings rows exist for this account yet.
 - assertVisible: "Want me to recognize what I can?"
 - tapOn: "Skip for now"
 
 # ── Screen: account/[id] — onboarding complete ────────────────────────────────
 - assertVisible: "Chase Freedom"
-- assertVisible: "Import CSV"
+- assertVisible: "COSTCO WHSE"

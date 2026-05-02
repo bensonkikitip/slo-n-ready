@@ -4,12 +4,12 @@ appId: com.kiip.slonready
 - runFlow: "maestro/onboarding_new_user.yaml"
 
 # ── We're on the Chase Freedom account detail screen ─────────────────────────
-# Tap the floating Import CSV button.
-- tapOn: "Import CSV"
+# Tap the split FAB's left (Import) pill.
+- tapOn: "Import"
 
 # ── Screen: import/pick ───────────────────────────────────────────────────────
-- assertVisible: "Choose File…"
-- tapOn: "Choose File…"
+- assertVisible: "Choose CSV File…"
+- tapOn: "Choose CSV File…"
 - inputFile: "maestro/fixtures/sample_import.csv"
 
 # ── Screen: import/preview ───────────────────────────────────────────────────
@@ -23,5 +23,6 @@ appId: com.kiip.slonready
 - assertVisible: "12"
 
 # Return to the account detail screen.
+# This is NOT fromOnboarding so the CTA is "Back to Account" (not "Set up rules →").
 - tapOn: "Back to Account"
 - assertVisible: "Chase Freedom"
