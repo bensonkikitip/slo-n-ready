@@ -4,7 +4,7 @@
     "slug": "slo-n-ready",
     "description": "Take it Slow, Do it Steady, Become Ready...zZ — a budget tracker for people who hate budgeting. Your data stays on your phone. No servers, no sync, no judgment.",
     "scheme": "slonready",
-    "version": "4.8.0",
+    "version": "4.8.1",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
