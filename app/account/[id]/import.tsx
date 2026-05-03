@@ -90,7 +90,14 @@ export default function ImportScreen() {
         await updateAccount(accountId, { column_config: JSON.stringify(detected.config) });
         setAccount(prev => prev ? { ...prev, column_config: JSON.stringify(detected.config) } : prev);
       }
-      const rows = parseCsv(columnConfig, text);
+      let rows = (() => { try { return parseCsv(columnConfig, text); } catch { return null; } })();
+      if (!rows || rows.length === 0) {
+        const detected = detectColumnConfig(text);
+        columnConfig = detected.config;
+        rows = parseCsv(columnConfig, text);
+        await updateAccount(accountId, { column_config: JSON.stringify(detected.config) });
+        setAccount(prev => prev ? { ...prev, column_config: JSON.stringify(detected.config) } : prev);
+      }
       if (rows.length === 0) throw new Error('No transactions found in fixture.');
       const ids = assignTransactionIds(
         rows.map(r => ({ accountId, dateIso: r.dateIso, amountCents: r.amountCents, description: r.description })),
@@ -145,7 +152,17 @@ export default function ImportScreen() {
         setAccount(prev => prev ? { ...prev, column_config: JSON.stringify(detected.config) } : prev);
       }
 
-      const rows = parseCsv(columnConfig, text);
+      // Try the configured format first; if it fails (e.g. account was set up with
+      // the wrong bank format), fall back to auto-detection so the import still works.
+      let rows = (() => { try { return parseCsv(columnConfig, text); } catch { return null; } })();
+      if (!rows || rows.length === 0) {
+        const detected = detectColumnConfig(text);
+        columnConfig = detected.config;
+        rows = parseCsv(columnConfig, text);
+        // Persist the discovered layout so future imports don't need to re-detect.
+        await updateAccount(accountId, { column_config: JSON.stringify(detected.config) });
+        setAccount(prev => prev ? { ...prev, column_config: JSON.stringify(detected.config) } : prev);
+      }
       if (rows.length === 0) throw new Error('No transactions found in this file.');
 
       const ids = assignTransactionIds(
