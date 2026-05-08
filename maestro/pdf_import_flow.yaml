@@ -1,0 +1,32 @@
+appId: com.kiip.slonready
+---
+# Regression guard for native module linking.
+#
+# If PdfExtractor is not compiled into the app (missing podspec, missing
+# file: dep in package.json, or broken pod install), extractPdfItems is null
+# and loadPdfFixture shows "PDF import requires a development build" instead
+# of the import preview.  The "N transactions found" assertion then fails,
+# catching the regression immediately.
+#
+# Precondition: Chase Freedom account with citi_cc_v1 format (from onboarding).
+- runFlow: "onboarding_new_user.yaml"
+
+# ── Navigate to import screen ─────────────────────────────────────────────────
+- tapOn: "Import"
+- assertVisible: "Choose CSV File…"
+
+# ── Load the Citi PDF fixture (goes through real extractPdfItems native call) ──
+- tapOn: "Load sample_citi_statement.pdf"
+
+# ── Preview phase: native module worked and parser found transactions ─────────
+# "Choose a Different File" only appears in the preview phase — if the native
+# module is missing or the parser returns 0 rows, an alert blocks this link
+# and the assertion fails, catching the regression.
+- assertVisible: "Choose a Different File"
+# Tap the "Import N Transactions" button. Use a regex so the count can vary.
+- tapOn: "Import.*Transactions"
+
+# ── Done phase ────────────────────────────────────────────────────────────────
+- assertVisible: "All done — nice work!"
+- tapOn: "Back to Account"
+- assertVisible: "Chase Freedom"

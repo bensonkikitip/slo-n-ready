@@ -116,6 +116,54 @@ export default function ImportScreen() {
     }
   }
 
+  // ── PDF fixture loader (dev builds only) ────────────────────────────────────
+
+  async function loadPdfFixture(name: 'sample_citi_statement' | 'sample_boa_statement') {
+    if (!__DEV__) return;
+    // This check is the regression guard: if the native module isn't linked
+    // (missing podspec / missing file: dep / wrong build), this alert fires
+    // and the Maestro test fails here rather than silently doing nothing.
+    if (!extractPdfItems) {
+      Alert.alert(
+        'PDF import requires a development build',
+        'PDF statement import is not available in Expo Go. Build the app with "eas build" or "expo run:ios" to unlock this feature.',
+      );
+      return;
+    }
+    setLoading(true);
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const { SAMPLE_CITI_PDF_B64, SAMPLE_BOA_PDF_B64 } = require('../../../src/test/pdf-fixtures');
+      const b64: string = name === 'sample_citi_statement' ? SAMPLE_CITI_PDF_B64 : SAMPLE_BOA_PDF_B64;
+      const uri = (FileSystem.cacheDirectory ?? '') + `${name}.pdf`;
+      await FileSystem.writeAsStringAsync(uri, b64, { encoding: FileSystem.EncodingType.Base64 });
+
+      if (!account) throw new Error('Account not found');
+      const items = await extractPdfItems(uri);
+      if (items.length === 0) throw new Error('No readable text found in fixture PDF.');
+
+      // Use the generic parser for fixture PDFs — the test's goal is to prove
+      // the native module is linked and PDFKit can extract text, not to exercise
+      // bank-specific parser logic (that's covered by unit tests with synthetic items).
+      const parsedPdf = parseGenericPdf(items);
+      if (parsedPdf.rows.length === 0) {
+        throw new Error('No transactions parsed from fixture PDF.');
+      }
+
+      setCachedUri(uri);
+      setIsFromPdf(true);
+      const ids = assignTransactionIds(
+        parsedPdf.rows.map(r => ({ accountId, dateIso: r.dateIso, amountCents: r.amountCents, description: r.description })),
+      );
+      setPreview({ filename: `${name}.pdf`, rows: parsedPdf.rows, ids, parsedPdf });
+      setPhase('preview');
+    } catch (e: any) {
+      Alert.alert('PDF fixture load failed', e.message ?? 'Unknown error');
+    } finally {
+      setLoading(false);
+    }
+  }
+
   // ── CSV flow ────────────────────────────────────────────────────────────────
 
   async function handlePickFile() {
@@ -347,6 +395,18 @@ export default function ImportScreen() {
             onPress={() => loadTestFixture('sample_import')}
           >
             <Text style={styles.devFixtureBarText}>Load sample_import.csv</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.devFixtureBarBtn}
+            onPress={() => loadPdfFixture('sample_citi_statement')}
+          >
+            <Text style={styles.devFixtureBarText}>Load sample_citi_statement.pdf</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.devFixtureBarBtn}
+            onPress={() => loadPdfFixture('sample_boa_statement')}
+          >
+            <Text style={styles.devFixtureBarText}>Load sample_boa_statement.pdf</Text>
           </TouchableOpacity>
         </View>
       )}

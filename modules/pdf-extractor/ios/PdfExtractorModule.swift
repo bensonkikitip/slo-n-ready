@@ -13,10 +13,19 @@ import PDFKit
  *
  * Coordinate system:
  *   • PDFKit uses PDF coordinates (origin bottom-left, y increases upward).
- *   • The TypeScript parsers expect y to increase downward (top of page = high y).
- *     We normalise: y_normalised = pageHeight - bounds.minY, which gives the
- *     "distance from top of page", matching typical PDF viewer coordinates.
+ *   • y is returned as bounds.minY — PDFKit native, no inversion.
+ *     The TypeScript parsers sort by descending y to read top-of-page first,
+ *     which requires high y = top of page — matching PDFKit's convention.
  *   • x is bounds.minX (left edge of the word's bounding box).
+ *
+ * Extraction strategy:
+ *   Call selectionsByLine() on the full page selection. For each line selection,
+ *   obtain its page-level character offset via range(at:on:). Each within-line
+ *   token offset is added to that base to form the page-level character index,
+ *   then page.characterBounds(at:) returns the CGRect for that character
+ *   directly — avoiding the O(n) cost of creating a PDFSelection per token.
+ *   Only the first character of each token is sampled; its minX / minY give
+ *   column-detection thresholds that are accurate enough for all bank parsers.
  */
 public class PdfExtractorModule: Module {
   public func definition() -> ModuleDefinition {
@@ -36,12 +45,8 @@ public class PdfExtractorModule: Module {
 
       for pageIndex in 0..<document.pageCount {
         guard let page = document.page(at: pageIndex) else { continue }
-        let pageHeight = page.bounds(for: .mediaBox).height
         let pageNumber = pageIndex + 1
 
-        // selectionsByLine() returns an array of PDFSelection objects, one per line.
-        // We split each line into individual words and get a bounding box per word.
-        // PDFPage.string gives the full text; we build a full-page range selection from it.
         guard let pageString = page.string, !pageString.isEmpty else { continue }
         let fullRange = NSRange(location: 0, length: (pageString as NSString).length)
         guard let fullSelection = page.selection(for: fullRange) else { continue }
@@ -50,35 +55,36 @@ public class PdfExtractorModule: Module {
         for lineSelection in lineSelections {
           guard let lineString = lineSelection.string else { continue }
 
-          // Split line into whitespace-delimited tokens
-          let tokens = lineString.components(separatedBy: .whitespaces).filter { !$0.isEmpty }
+          // Determine where this line starts in the page character sequence so
+          // that within-line token offsets can be converted to page-level offsets.
+          // range(at:on:) returns the NSRange of the first contiguous run of the
+          // line selection within the page's character space.
+          guard lineSelection.numberOfTextRanges(on: page) > 0 else { continue }
+          let lineBaseOffset = lineSelection.range(at: 0, on: page).location
 
-          // Scan through the line string to find the range of each token, then
-          // ask PDFKit for the character bounds of the first character in that range.
-          // This is more reliable than substring searching across ligatures.
+          let tokens = lineString.components(separatedBy: .whitespaces).filter { !$0.isEmpty }
           var searchRange = lineString.startIndex..<lineString.endIndex
 
           for token in tokens {
             guard let tokenRange = lineString.range(of: token, range: searchRange) else { continue }
-
-            // Advance search past this token for next iteration
             searchRange = tokenRange.upperBound..<lineString.endIndex
 
-            // Build a character range for just this token's first character.
-            // characterBounds(at: 0) on the character selection gives the bounding
-            // box of the whole token in practice (PDFKit merges contiguous characters).
             let nsRange = NSRange(tokenRange, in: lineString)
-            guard let charSelection = page.selection(
-              for: NSRange(location: nsRange.location, length: nsRange.length)
-            ) else { continue }
+            // Page-level character index of the first character in this token.
+            let firstCharIdx = lineBaseOffset + nsRange.location
 
-            let bounds = charSelection.bounds(for: page)
-            // Skip items with zero-size bounds (invisible / whitespace artefacts)
+            // characterBounds(at:) returns the bounding box of a single character
+            // without creating a PDFSelection — much cheaper than selection(for:)
+            // when called for every token on every page.
+            let bounds = page.characterBounds(at: firstCharIdx)
+            // Skip zero-size / invisible artefacts (also catches out-of-range idx)
             if bounds.width < 0.5 || bounds.height < 0.5 { continue }
 
             let x = Double(bounds.minX)
-            // Normalise y: PDF origin is bottom-left; we want top-left origin
-            let y = Double(pageHeight - bounds.minY)
+            // Pass PDFKit native y (origin bottom-left, increases upward).
+            // TypeScript parsers sort by descending y to read top-of-page first,
+            // which requires high y = top of page — exactly PDFKit's convention.
+            let y = Double(bounds.minY)
 
             items.append([
               "page": pageNumber,
