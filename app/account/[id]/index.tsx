@@ -65,7 +65,7 @@ export default function AccountDetailScreen() {
   const [months,                setMonths]                = useState<MonthEntry[]>([]);
   const [years,                 setYears]                 = useState<YearEntry[]>([]);
   const [categories,            setCategories]            = useState<Category[]>([]);
-  const [selectedTransactionId, setSelectedTransactionId] = useState<string | null>(null);
+
   const [loading,               setLoading]               = useState(true);
   const [menuOpen,              setMenuOpen]              = useState(false);
   const [bulkMode,              setBulkMode]              = useState(false);
@@ -349,58 +349,6 @@ export default function AccountDetailScreen() {
     );
   }
 
-  async function handleCategorySelect(categoryId: string | null) {
-    if (!selectedTransactionId) return;
-    const tx = transactions.find(t => t.id === selectedTransactionId);
-    if (tx?.category_id === categoryId) { setSelectedTransactionId(null); return; }
-    const wasUncategorized = tx?.category_id == null;
-    const prevCategoryId = tx?.category_id ?? null;
-    const isFirstCategorized = wasUncategorized && categoryId !== null &&
-      transactions.filter(t => t.category_id !== null && t.dropped_at === null).length === 0;
-    await setTransactionCategory(selectedTransactionId, categoryId, true, null);
-    setTransactions(prev => prev.map(t =>
-      t.id === selectedTransactionId
-        ? { ...t, category_id: categoryId, category_set_manually: 1, applied_rule_id: null }
-        : t,
-    ));
-    setSelectedTransactionId(null);
-    writeBackupSafe();
-    if (isFirstCategorized) setRacheyMoment('firstTransactionCategorized');
-
-    if (wasUncategorized && categoryId && tx?.description) {
-      if (account?.suggest_rules !== 0) {
-        Alert.alert(
-          'Create a rule?',
-          `Want to automatically categorize future transactions containing "${tx.description}"?`,
-          [
-            {
-              text: 'Undo',
-              onPress: async () => {
-                await setTransactionCategory(tx.id, null, false, null);
-                setTransactions(prev => prev.map(t =>
-                  t.id === tx.id
-                    ? { ...t, category_id: null, category_set_manually: 0, applied_rule_id: null }
-                    : t,
-                ));
-                writeBackupSafe();
-              },
-            },
-            { text: 'No thanks', style: 'cancel' },
-            {
-              text: 'Create Rule',
-              onPress: () => router.push({
-                pathname: `/account/${id}/rules`,
-                params: { prefillText: tx.description, prefillCategory: categoryId },
-              }),
-            },
-          ],
-        );
-      } else {
-        setUndoBanner({ txId: tx.id, prevCategoryId });
-      }
-    }
-  }
-
   // ── early returns ─────────────────────────────────────────────────────────
   if (loading) {
     return (
@@ -590,7 +538,7 @@ export default function AccountDetailScreen() {
                 <TransactionRow
                   transaction={item}
                   category={item.category_id ? categoryMap[item.category_id] ?? null : null}
-                  onPress={bulkMode ? () => toggleSelectId(item.id) : () => setSelectedTransactionId(item.id)}
+                  onPress={bulkMode ? () => toggleSelectId(item.id) : () => router.push(`/account/${id}/tx-edit?txId=${item.id}`)}
                   bulkMode={bulkMode}
                   selected={selectedIds.has(item.id)}
                 />
@@ -650,17 +598,6 @@ export default function AccountDetailScreen() {
           </>
         )}
       </View>
-
-      <CategoryPickerSheet
-        visible={selectedTransactionId !== null}
-        categories={categories}
-        currentCategoryId={
-          transactions.find(t => t.id === selectedTransactionId)?.category_id ?? null
-        }
-        onClose={() => setSelectedTransactionId(null)}
-        onSelect={handleCategorySelect}
-        onCategoryCreated={cat => setCategories(prev => [...prev, cat].sort((a, b) => a.name.localeCompare(b.name)))}
-      />
 
       <CategoryPickerSheet
         visible={bulkPickerVisible}

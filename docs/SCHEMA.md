@@ -75,7 +75,7 @@ Individual transactions imported from CSVs.
 | `description` | `TEXT NOT NULL` | Normalized via `normalizeDescription()`. |
 | `original_description` | `TEXT NOT NULL` | Verbatim from CSV. |
 | `is_pending` | `INTEGER NOT NULL DEFAULT 0` | 1 = still pending in bank feed. |
-| `dropped_at` | `INTEGER DEFAULT NULL` | Set when a pending transaction disappeared from a later import. **Filtered out of all summaries** (`dropped_at IS NULL` clause). |
+| `dropped_at` | `INTEGER DEFAULT NULL` | Set (ms timestamp) when a transaction is soft-deleted. Two sources: (1) automatic — pending tx that disappeared from a later bank-feed import; (2) user-initiated — imported tx deleted from the tx-edit screen (`softDropTransaction`). **Filtered out of all summaries** (`dropped_at IS NULL` clause). Shown in the transaction list with a visual indicator. Hard-delete (`hardDeleteTransaction`) is used instead for manual transactions (`source_is_manual = 1`). |
 | `import_batch_id` | `TEXT NOT NULL REFERENCES import_batches(id)` | Which import created this row. |
 | `created_at` | `INTEGER NOT NULL` | ms timestamp. |
 | `category_id` | `TEXT REFERENCES categories(id) ON DELETE SET NULL` | Nullable. |

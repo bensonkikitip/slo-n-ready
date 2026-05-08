@@ -714,6 +714,130 @@ export async function getUncategorizedTransactionsForAccount(accountId: string):
  * Used after import confirms to offer the user a chance to merge/delete the
  * manual entries that the import has now made redundant.
  */
+// ─── Transaction edit / delete mutations ─────────────────────────────────────
+
+/**
+ * Update the core fields of any transaction in place. The row ID stays the
+ * same — deterministic IDs are an import-pipeline concern; editing a row after
+ * import does not affect re-import dedup behaviour (the original data still
+ * hashes to the same ID via the algorithm, and INSERT OR IGNORE skips it).
+ *
+ * category_id / category_set_manually / applied_rule_id are intentionally NOT
+ * touched here — use setTransactionCategory for those.
+ */
+export async function updateTransaction(
+  id: string,
+  fields: { dateIso: string; amountCents: number; description: string },
+): Promise<void> {
+  const db = await getDb();
+  await db.runAsync(
+    `UPDATE transactions
+     SET date = ?, amount_cents = ?, description = ?
+     WHERE id = ?`,
+    fields.dateIso, fields.amountCents, fields.description, id,
+  );
+}
+
+/**
+ * Hard-delete a transaction from the database.
+ * Only for manual transactions (source_is_manual = 1). Manual entries were
+ * never in a bank feed, so preserving them as dropped rows is unnecessary.
+ */
+export async function hardDeleteTransaction(id: string): Promise<void> {
+  const db = await getDb();
+  await db.runAsync(`DELETE FROM transactions WHERE id = ?`, id);
+}
+
+/**
+ * Soft-delete a transaction by setting dropped_at.
+ * For imported transactions (source_is_manual = 0): preserves the audit trail.
+ * The row is excluded from all active-filter queries via `dropped_at IS NULL`.
+ */
+export async function softDropTransaction(id: string): Promise<void> {
+  const db = await getDb();
+  await db.runAsync(
+    `UPDATE transactions SET dropped_at = ? WHERE id = ?`,
+    Date.now(), id,
+  );
+}
+
+// ─── Cross-import duplicate detection ────────────────────────────────────────
+
+export interface CrossImportDupePair {
+  newTx: {
+    id: string;
+    date: string;
+    amount_cents: number;
+    description: string;
+  };
+  existingTx: {
+    id: string;
+    date: string;
+    description: string;
+    import_batch_id: string;
+  };
+}
+
+/**
+ * Find rows in `batchId` that probably already exist in the account from an
+ * earlier import (same amount_cents, dates within 1 day, different batch).
+ *
+ * One pair per new-batch row — if multiple earlier rows match, only the first
+ * (by rowid) is surfaced. Only active (dropped_at IS NULL), non-manual rows.
+ */
+export async function findCrossImportDuplicates(
+  accountId: string,
+  batchId: string,
+): Promise<CrossImportDupePair[]> {
+  const db = await getDb();
+  const rows = await db.getAllAsync<{
+    new_id: string; new_date: string; new_amount_cents: number; new_description: string;
+    existing_id: string; existing_date: string; existing_description: string;
+    existing_batch_id: string;
+  }>(
+    `SELECT
+       n.id           AS new_id,
+       n.date         AS new_date,
+       n.amount_cents AS new_amount_cents,
+       n.description  AS new_description,
+       e.id           AS existing_id,
+       e.date         AS existing_date,
+       e.description  AS existing_description,
+       e.import_batch_id AS existing_batch_id
+     FROM transactions n
+     JOIN transactions e
+       ON  e.account_id    = n.account_id
+       AND e.amount_cents  = n.amount_cents
+       AND abs(julianday(e.date) - julianday(n.date)) <= 1
+       AND e.import_batch_id != n.import_batch_id
+       AND e.dropped_at IS NULL
+       AND e.source_is_manual = 0
+     WHERE n.import_batch_id = ?
+       AND n.account_id      = ?
+       AND n.dropped_at IS NULL
+     GROUP BY n.id
+     ORDER BY n.date DESC`,
+    batchId, accountId,
+  );
+
+  return rows.map(r => ({
+    newTx: {
+      id:           r.new_id,
+      date:         r.new_date,
+      amount_cents: r.new_amount_cents,
+      description:  r.new_description,
+    },
+    existingTx: {
+      id:              r.existing_id,
+      date:            r.existing_date,
+      description:     r.existing_description,
+      import_batch_id: r.existing_batch_id,
+    },
+  }));
+}
+
+// ─── Reconciliation (manual ↔ imported) ──────────────────────────────────────
+
 export async function findReconciliationCandidates(
   accountId: string,
   batchId: string,

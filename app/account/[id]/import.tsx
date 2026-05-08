@@ -14,7 +14,7 @@ import {
   updateAccount, getDistinctMonths,
 } from '../../../src/db/queries';
 import { writeBackupSafe } from '../../../src/db/backup';
-import { findReconciliationCandidates } from '../../../src/db/queries/transactions';
+import { findReconciliationCandidates, findCrossImportDuplicates } from '../../../src/db/queries/transactions';
 import { autoApplyRulesForAccount, ApplyResult } from '../../../src/domain/rules-engine';
 import {
   parseCsv, ParsedRow,
@@ -66,7 +66,8 @@ export default function ImportScreen() {
   const [cachedUri,             setCachedUri]             = useState<string | null>(null);
   const [isFromPdf,             setIsFromPdf]             = useState(false);
   const [reconcileCandidateCount, setReconcileCandidateCount] = useState(0);
-  const [lastBatchId,           setLastBatchId]           = useState<string | null>(null);
+  const [dedupCount,              setDedupCount]              = useState(0);
+  const [lastBatchId,             setLastBatchId]             = useState<string | null>(null);
 
   React.useEffect(() => {
     getAllAccounts().then(accts => setAccount(accts.find(a => a.id === accountId) ?? null));
@@ -347,8 +348,17 @@ export default function ImportScreen() {
         const candidates = await findReconciliationCandidates(accountId, batchId);
         candidateCount = candidates.length;
       } catch { /* non-fatal */ }
+
+      // Check for cross-import duplicates (same batch vs prior imports)
+      let crossDedupCount = 0;
+      try {
+        const dupes = await findCrossImportDuplicates(accountId, batchId);
+        crossDedupCount = dupes.length;
+      } catch { /* non-fatal */ }
+
       setLastBatchId(batchId);
       setReconcileCandidateCount(candidateCount);
+      setDedupCount(crossDedupCount);
 
       // Delete the cached copy — CSV or PDF — the app never needs it again
       if (cachedUri) {
@@ -635,6 +645,33 @@ export default function ImportScreen() {
                   <TouchableOpacity
                     style={styles.reconcileSkipBtn}
                     onPress={() => setReconcileCandidateCount(0)}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={styles.reconcileSkipText}>Skip</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
+
+            {dedupCount > 0 && (
+              <View style={styles.reconcileCard}>
+                <Text style={styles.reconcileTitle}>
+                  ⚠️ Overlapping imports
+                </Text>
+                <Text style={styles.reconcileBody}>
+                  {dedupCount} {dedupCount === 1 ? 'row' : 'rows'} from this import may already exist from a previous import — same amount, close date.
+                </Text>
+                <View style={styles.reconcileActions}>
+                  <TouchableOpacity
+                    style={[styles.reconcileReviewBtn, { backgroundColor: accent }]}
+                    onPress={() => router.push(`/account/${accountId}/import-dedup?batchId=${lastBatchId}`)}
+                    activeOpacity={0.85}
+                  >
+                    <Text style={styles.reconcileReviewText}>Review →</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.reconcileSkipBtn}
+                    onPress={() => setDedupCount(0)}
                     activeOpacity={0.7}
                   >
                     <Text style={styles.reconcileSkipText}>Skip</Text>
