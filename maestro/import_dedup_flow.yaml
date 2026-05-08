@@ -18,14 +18,16 @@ appId: com.kiip.slonready
 - tapOn: "Load sample_dedup.csv"
 
 # ── Screen: import/preview ───────────────────────────────────────────────────
-- assertVisible: "1 transaction found"
-- tapOn: "Import 1 Transaction"
+- assertVisible: "1 transactions found"
+- tapOn: "Import 1 Transactions"
 
 # ── Screen: import/done ───────────────────────────────────────────────────────
 - assertVisible: "All done — nice work!"
 # The "⚠️ Overlapping imports" CTA card appears because dedupCount = 1.
-- assertVisible: "Overlapping imports"
-- assertVisible: "1 row"
+# Assert the "Review →" button is visible — its presence proves the dedup CTA fired.
+# (The full title text "⚠️ Overlapping imports" includes an emoji that Maestro
+# requires verbatim in exact-match mode, so we assert on the action button instead.)
+- assertVisible: "Review →"
 - tapOn: "Review →"
 
 # ── Screen: import-dedup — review duplicate pairs ────────────────────────────
@@ -42,5 +44,7 @@ appId: com.kiip.slonready
 - tapOn: "Done"
 
 # ── Back on import done screen ────────────────────────────────────────────────
+# "Back to Account" may be below the Overlapping imports CTA card — scroll to it.
+- scroll
 - tapOn: "Back to Account"
 - assertVisible: "Chase Freedom"

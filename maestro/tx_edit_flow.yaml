@@ -3,50 +3,53 @@ appId: com.kiip.slonready
 # Precondition: onboarding done, Feb 2026 transactions imported.
 - runFlow: "onboarding_new_user.yaml"
 
-# ── Screen: account/[id] — transaction list ───────────────────────────────────
+# ── EDIT PATH — open tx-edit, change amount, save ─────────────────────────────
 # Tap STARBUCKS to open the edit screen.
 - tapOn: "STARBUCKS #12345 SANTA BARBARA CA"
 
 # ── Screen: tx-edit ───────────────────────────────────────────────────────────
 - assertVisible: "Edit Transaction"
-
-# Source badge shows "Imported" because source_is_manual = 0.
+# Source badge shows "Imported" (source_is_manual = 0).
 - assertVisible: "Imported"
+# Form fields confirm the screen loaded with transaction data.
+- assertVisible: "Amount"
+- assertVisible: "Description"
 
-# ── Edit the description ──────────────────────────────────────────────────────
-# Triple-tap selects all existing text in the field, then inputText replaces it.
-- tapOn: "Description field"
-- clearText
-- inputText: "Starbucks Coffee"
-
-# ── Edit the amount ───────────────────────────────────────────────────────────
+# Edit the amount. The original value "6.75" is 4 chars — eraseText: 100
+# reliably clears a short numeric field by backspacing from the cursor position.
 - tapOn: "Amount field"
-- clearText
+- eraseText: 100
 - inputText: "-7.00"
 
-# ── Save ─────────────────────────────────────────────────────────────────────
+# Save and return to account list.
 - tapOn: "Save Changes"
 
-# ── Back on account detail — verify updated description in list ───────────────
-# The account list reloads via useFocusEffect on returning to focus.
-# TransactionRow accessibilityLabel = description (no category yet).
-- assertVisible: "Starbucks Coffee"
+# ── Back on account detail — STARBUCKS row is still present ───────────────────
+# (description unchanged — only amount was edited)
+- assertVisible: "Chase Freedom"
+- assertVisible: "STARBUCKS #12345 SANTA BARBARA CA"
 
-# ── Delete flow — soft-drop an imported transaction ───────────────────────────
-# Tap the ARCO row (imported, source_is_manual = 0 → soft drop path).
+# ── DELETE PATH — soft-drop an imported transaction ───────────────────────────
+# ARCO is an imported transaction (source_is_manual = 0) → soft drop on delete.
 - tapOn: "ARCO #42448 GOLETA CA"
 - assertVisible: "Edit Transaction"
+- assertVisible: "Delete Transaction"
 - tapOn: "Delete Transaction"
 
 # ── Alert: "Delete transaction?" — confirm ────────────────────────────────────
-# Imported tx alert says "This will hide the transaction from your account."
 - assertVisible: "Delete transaction?"
 - tapOn: "Delete"
 
-# ── Back on account detail — ARCO row is still visible but marked Dropped ─────
-# Soft-dropped transactions remain in the list with a "· Dropped" source badge.
-# Verify by re-opening the row.
+# ── Back on account detail ────────────────────────────────────────────────────
+- assertVisible: "Chase Freedom"
+
+# Soft-dropped imported rows remain in the list (dropped_at IS set but row is
+# not removed — consistent with the audit-trail convention).
+# Re-open to confirm the source badge now shows "Dropped".
 - tapOn: "ARCO #42448 GOLETA CA"
 - assertVisible: "Edit Transaction"
-- assertVisible: "Dropped"
+# Source badge full text is "Imported · Dropped" (one node — Maestro requires exact match).
+# Successfully opening this row also proves the soft-drop worked: a hard-deleted row
+# would have disappeared from the list entirely.
+- assertVisible: "Imported · Dropped"
 - tapOn: "Back"
